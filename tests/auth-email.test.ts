@@ -111,3 +111,21 @@ describe("Registro y autenticación", () => {
     await expect(requestPasswordReset({ email: "noexiste@example.com", baseUrl: "http://x" })).resolves.toEqual({ emailSent: false });
   });
 });
+
+describe("Credencial de Google", () => {
+  it("acepta el JSON pegado con variantes comunes y nunca expone la clave en el error", async () => {
+    const { parseServiceAccount } = await import("@/server/sheets/google");
+    const obj = { client_email: "x@p.iam.gserviceaccount.com", private_key: "-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n" };
+    const json = JSON.stringify(obj, null, 2);
+    expect(parseServiceAccount(json).client_email).toBe(obj.client_email);
+    expect(parseServiceAccount(`'${json}'`).client_email).toBe(obj.client_email);
+    expect(parseServiceAccount(Buffer.from(json).toString("base64")).client_email).toBe(obj.client_email);
+    expect(parseServiceAccount(json.replace(/\\n/g, "\n")).private_key).toContain("ABC");
+    expect(() => parseServiceAccount('{"private_key": "SECRETO-123"')).toThrow(/largo/);
+    try {
+      parseServiceAccount('{"private_key": "SECRETO-123"');
+    } catch (err) {
+      expect((err as Error).message).not.toContain("SECRETO");
+    }
+  });
+});

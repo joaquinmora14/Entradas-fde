@@ -16,13 +16,7 @@ export function googleSheetsConfigFromEnv(env: NodeJS.ProcessEnv = process.env):
   const spreadsheetId = env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
   const raw = env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
   if (!spreadsheetId || !raw) return null;
-  let json: { client_email?: string; private_key?: string };
-  try {
-    const text = raw.startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
-    json = JSON.parse(text);
-  } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no es un JSON válido (ni en texto ni en base64)");
-  }
+  const json = parseServiceAccount(raw);
   if (!json.client_email || !json.private_key) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no contiene client_email/private_key");
   }
@@ -32,6 +26,52 @@ export function googleSheetsConfigFromEnv(env: NodeJS.ProcessEnv = process.env):
     clientEmail: json.client_email,
     privateKey: json.private_key.replace(/\\n/g, "\n"),
   };
+}
+
+/**
+ * Interpreta el JSON de la cuenta de servicio tolerando errores típicos al pegarlo
+ * en un panel web (comillas envolventes, saltos de línea reales dentro de la clave,
+ * base64). Los mensajes de error nunca incluyen el contenido de la clave.
+ */
+export function parseServiceAccount(raw: string): { client_email?: string; private_key?: string } {
+  let text = raw.trim();
+  if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith('"') && text.endsWith('"') && !text.startsWith('"{'))) {
+    text = text.slice(1, -1).trim();
+  }
+  if (!text.startsWith("{")) {
+    const decoded = Buffer.from(text, "base64").toString("utf8").trim();
+    if (decoded.startsWith("{")) text = decoded;
+  }
+  const attempts = [
+    text,
+    // Saltos de línea reales dentro de los strings (p. ej. la clave PEM pegada "desescapada").
+    text.replace(/\r?\n/g, "\\n"),
+    text.replace(/\r?\n/g, ""),
+  ];
+  for (const candidate of attempts) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // probar la siguiente variante
+    }
+  }
+  const first = text.slice(0, 1) || "(vacío)";
+  const last = text.slice(-1) || "(vacío)";
+  throw new Error(
+    `GOOGLE_SERVICE_ACCOUNT_JSON no es un JSON válido (largo ${text.length}, empieza con "${first}", termina con "${last}"; ` +
+      `${text.includes('"private_key"') ? "contiene" : "NO contiene"} private_key, ` +
+      `${text.includes('"client_email"') ? "contiene" : "NO contiene"} client_email)`,
+  );
+}
+
+/** Error de configuración legible (sin secretos), o null si está bien o no configurado. */
+export function googleSheetsConfigError(): string | null {
+  try {
+    googleSheetsConfigFromEnv();
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
 }
 
 function quoteTab(tab: string): string {

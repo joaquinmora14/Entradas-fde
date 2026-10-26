@@ -5,7 +5,7 @@ import { Alert, Badge, Card, EmptyState, PageTitle, formatDateTime, secondaryBut
 import { syncAction } from "@/app/actions/admin";
 import { getCurrentActor } from "@/lib/session";
 import { getAdminOverview, getSyncDetails } from "@/server/admin";
-import { googleSheetsConfigFromEnv } from "@/server/sheets/google";
+import { googleSheetsConfigError, googleSheetsConfigFromEnv } from "@/server/sheets/google";
 
 export const metadata: Metadata = { title: "Planilla" };
 
@@ -24,7 +24,11 @@ export default async function SyncPage() {
   return (
     <div className="space-y-5">
       <PageTitle title="Planilla de Google Sheets" subtitle="PostgreSQL es la fuente de verdad; la hoja “Invitados” se actualiza automáticamente con reintentos." />
-      {!o.sheetsConfigured ? (
+      {googleSheetsConfigError() ? (
+        <Alert tone="error" title="La credencial de Google no es válida">
+          {googleSheetsConfigError()}. Volvé a cargar GOOGLE_SERVICE_ACCOUNT_JSON en Vercel con el contenido completo del archivo .json.
+        </Alert>
+      ) : !o.sheetsConfigured ? (
         <Alert tone="warning" title="No configurado">
           Faltan las variables GOOGLE_SERVICE_ACCOUNT_JSON y GOOGLE_SHEETS_SPREADSHEET_ID. Las invitaciones quedan en cola y se enviarán apenas se configure.
         </Alert>

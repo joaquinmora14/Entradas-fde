@@ -174,6 +174,7 @@ export async function runSheetSync(opts: SyncOptions): Promise<SyncResult> {
   try {
     client = getSheetsClient();
   } catch (err) {
+    console.error("[sheets] configuración inválida:", safeError(err));
     return { ...empty, status: "error", error: safeError(err) };
   }
   if (!client) return { ...empty, status: "not_configured" };

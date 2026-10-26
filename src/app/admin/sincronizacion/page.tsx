@@ -5,12 +5,19 @@ import { Alert, Badge, Card, EmptyState, PageTitle, formatDateTime, secondaryBut
 import { syncAction } from "@/app/actions/admin";
 import { getCurrentActor } from "@/lib/session";
 import { getAdminOverview, getSyncDetails } from "@/server/admin";
+import { googleSheetsConfigFromEnv } from "@/server/sheets/google";
 
 export const metadata: Metadata = { title: "Planilla" };
 
 export default async function SyncPage() {
   const actor = await getCurrentActor();
   const [o, s] = await Promise.all([getAdminOverview(actor), getSyncDetails(actor)]);
+  let serviceAccount: string | null = null;
+  try {
+    serviceAccount = googleSheetsConfigFromEnv()?.clientEmail ?? null;
+  } catch {
+    serviceAccount = null;
+  }
   const sheetUrl = process.env.GOOGLE_SHEETS_SPREADSHEET_ID
     ? `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEETS_SPREADSHEET_ID}/edit`
     : null;
@@ -33,6 +40,11 @@ export default async function SyncPage() {
             </a>
           ) : null}
         </div>
+        {serviceAccount ? (
+          <p className="mt-3 break-all text-sm text-slate-600">
+            Cuenta de servicio: <code className="rounded bg-slate-100 px-1">{serviceAccount}</code> (la planilla tiene que estar compartida con este email como Editor).
+          </p>
+        ) : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <ActionForm action={syncAction} hidden={{ op: "sync" }}>
             <SubmitButton className={secondaryButtonClass} pendingText="Sincronizando…">Sincronizar pendientes ahora</SubmitButton>

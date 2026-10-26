@@ -524,3 +524,48 @@ export async function updateRegistrationCode(actorIn: Actor | null, code: unknow
     details: { enabled: Boolean(value) },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Ficha de un egresado (control total desde administración)
+// ---------------------------------------------------------------------------
+export async function getGraduateActor(adminIn: Actor | null, userId: string): Promise<Actor> {
+  requireAdmin(adminIn);
+  const { rows } = await getDb().query<{
+    id: string;
+    email: string;
+    display_name: string | null;
+    is_admin: boolean;
+    is_graduate: boolean;
+    status: string;
+  }>("SELECT id, email, display_name, is_admin, is_graduate, status FROM app.users WHERE id = $1", [userId]);
+  const u = rows[0];
+  if (!u || !u.is_graduate) throw new AppError("NOT_FOUND", "El egresado no existe.");
+  if (u.status === "disabled") throw new AppError("CONFLICT", "La cuenta del egresado está deshabilitada.");
+  return { id: u.id, email: u.email, displayName: u.display_name, isAdmin: u.is_admin, isGraduate: true };
+}
+
+export async function getGraduateDetail(adminIn: Actor | null, userId: string) {
+  requireAdmin(adminIn);
+  const users = await listUsers(adminIn);
+  const user = users.find((u) => u.id === userId && u.isGraduate);
+  if (!user) throw new AppError("NOT_FOUND", "El egresado no existe.");
+  const { rows } = await getDb().query(
+    `SELECT id, guest_email, source, status, created_at, sync_status, cancel_reason
+       FROM app.invitations WHERE inviter_id = $1
+      ORDER BY status, created_at DESC`,
+    [userId],
+  );
+  return {
+    user,
+    remaining: user.initialQuota - user.used,
+    invitations: rows.map((r) => ({
+      id: r.id as string,
+      email: r.guest_email as string,
+      source: r.source as "direct" | "pool",
+      status: r.status as "active" | "cancelled",
+      createdAt: (r.created_at as Date).toISOString(),
+      sync: r.sync_status as "pending" | "synced" | "error",
+      cancelReason: r.cancel_reason as string | null,
+    })),
+  };
+}

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { InviteForm } from "@/components/invite-form";
+import { BulkInviteForm } from "@/components/bulk-invite-form";
+import { checkEmailsAction, inviteManyAction } from "@/app/actions/invite";
 import { Alert, Badge, Card, EmptyState, PageTitle, ProgressBar, Stat, SyncBadge, formatDateTime } from "@/components/ui";
 import { requireActor } from "@/lib/session";
 import { getDashboard } from "@/server/invitations";
@@ -22,8 +23,8 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
   const pool = d.invitations.filter((i) => i.source === "pool");
   return (
     <div className="space-y-5">
-      <PageTitle title={`Hola, ${actor.displayName ?? actor.email}`} subtitle="Registrá a tus invitados con su email." />
-      {params.bienvenida ? <Alert tone="success" title="¡Cuenta creada!">Ya podés registrar a tus invitados.</Alert> : null}
+      <PageTitle title={`Hola, ${actor.displayName ?? actor.email}`} subtitle="Anotá a quién le diste cada entrada. La app no envía nada: sirve para que ningún mail se repita entre egresados." />
+      {params.bienvenida ? <Alert tone="success" title="¡Cuenta creada!">Ya podés anotar a quién le diste tus entradas.</Alert> : null}
       {params.clave ? <Alert tone="success">Tu contraseña se actualizó.</Alert> : null}
       {params.error === "sin-permiso" ? <Alert tone="error">No tenés permisos para entrar a esa sección.</Alert> : null}
 
@@ -46,10 +47,16 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
           </div>
         </div>
         <div className="mt-4">
-          <ProgressBar value={d.quota.used} max={d.quota.initial} label="Entradas utilizadas" />
+          <ProgressBar value={d.quota.used} max={d.quota.initial} label="Entradas usadas" />
         </div>
         <div className="mt-5 border-t border-slate-100 pt-5">
-          <InviteForm remaining={d.quota.remaining} />
+          {d.quota.remaining > 0 ? (
+            <BulkInviteForm check={checkEmailsAction} submit={inviteManyAction} remaining={d.quota.remaining} />
+          ) : (
+            <Alert tone="info" title="Ya anotaste todas tus entradas">
+              Si te equivocaste en algún mail, pedile al administrador que lo corrija.
+            </Alert>
+          )}
         </div>
       </Card>
 
@@ -60,11 +67,11 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
 
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Mis invitados</h2>
+          <h2 className="text-lg font-semibold">Mails que anotaste</h2>
           <Badge>{d.invitations.length}</Badge>
         </div>
         {d.invitations.length === 0 ? (
-          <EmptyState title="Todavía no invitaste a nadie">Escribí un email arriba y confirmá.</EmptyState>
+          <EmptyState title="Todavía no anotaste ningún mail">Pegá la lista arriba y tocá “Revisar mails”.</EmptyState>
         ) : (
           <ul className="divide-y divide-slate-100">
             {[...direct, ...pool].map((i) => (

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  getGraduateActor,
   cancelInvitation,
   correctInvitationEmail,
   deletePendingUser,
@@ -12,11 +13,12 @@ import {
   updateRegistrationCode,
 } from "@/server/admin";
 import { requireAdmin } from "@/server/actor";
+import { checkGuestEmails, inviteMany } from "@/server/invitations";
 import { publicMessage } from "@/server/errors";
 import { importPool, updatePoolPerson } from "@/server/pool-admin";
 import { diagnoseSheet, makeAllPendingDue, reconcileSheet, runSheetSync } from "@/server/sheets/sync";
 import { auditSafe } from "@/server/audit";
-import { baseUrl, getCurrentActor } from "@/lib/session";
+import { baseUrl, clientIp, getCurrentActor } from "@/lib/session";
 import type { FormState } from "@/lib/form-state";
 
 async function readText(form: FormData, field = "text", fileField = "file"): Promise<string> {
@@ -168,5 +170,28 @@ export async function settingsAction(_p: FormState, form: FormData): Promise<For
     return { ok: true, message: code ? "Código de registro actualizado." : "Código de registro desactivado." };
   } catch (err) {
     return fail(err);
+  }
+}
+
+/** El administrador revisa una lista en nombre de un egresado (ve quién anotó cada mail). */
+export async function adminCheckEmailsAction(graduateId: string, emails: string[]) {
+  try {
+    const grad = await getGraduateActor(await getCurrentActor(), graduateId);
+    return await checkGuestEmails(grad, emails, { revealInviter: true });
+  } catch (err) {
+    return { error: publicMessage(err) } as const;
+  }
+}
+
+/** El administrador anota entradas en nombre de un egresado (usa el cupo del egresado; queda auditado). */
+export async function adminInviteManyAction(graduateId: string, items: Array<{ email: string; idempotencyKey: string }>) {
+  try {
+    const admin = requireAdmin(await getCurrentActor());
+    const grad = await getGraduateActor(admin, graduateId);
+    const result = await inviteMany(grad, { items, ip: await clientIp() }, { performedBy: admin });
+    revalidatePath("/admin", "layout");
+    return result;
+  } catch (err) {
+    return { error: publicMessage(err) } as const;
   }
 }

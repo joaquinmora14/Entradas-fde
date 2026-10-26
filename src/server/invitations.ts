@@ -67,7 +67,7 @@ export async function retireAvailablePoolPerson(c: DbClient, email: string, by: 
 export async function inviteGuest(
   actorIn: Actor | null,
   input: { email: unknown; idempotencyKey: unknown; ip?: string | null },
-  opts: { syncNow?: boolean } = {},
+  opts: { syncNow?: boolean; performedBy?: Actor } = {},
 ): Promise<InviteOutcome> {
   let actor: Actor;
   try {
@@ -119,13 +119,17 @@ export async function inviteGuest(
       );
       await audit(
         {
-          actorId: actor.id,
-          actorEmail: actor.email,
+          actorId: opts.performedBy?.id ?? actor.id,
+          actorEmail: opts.performedBy?.email ?? actor.email,
           action: "invite",
           result: "success",
           target: ins.rows[0].id,
           ip: input.ip,
-          details: { guest: email, source: "direct" },
+          details: {
+            guest: email,
+            source: "direct",
+            ...(opts.performedBy ? { onBehalfOf: actor.email, by: "admin" } : {}),
+          },
         },
         c,
       );
@@ -322,4 +326,124 @@ export async function getDashboard(actor: Actor) {
 
 export function assertNever(x: never): never {
   throw new AppError("VALIDATION", `Valor inesperado: ${String(x)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Varias entradas a la vez (lista pegada por el egresado)
+// ---------------------------------------------------------------------------
+export type CheckStatus =
+  | "ok" // se puede anotar
+  | "invalid" // no es un email válido
+  | "repeated" // repetido dentro de la misma lista
+  | "mine" // ya lo anotaste vos
+  | "taken" // ya lo anotó otro egresado
+  | "graduate" // es un egresado
+  | "self"; // sos vos
+
+export interface CheckedEmail {
+  email: string;
+  normalized: string | null;
+  status: CheckStatus;
+  message?: string;
+}
+
+/** Revisa una lista ANTES de anotarla. No modifica nada. */
+export async function checkGuestEmails(
+  actorIn: Actor | null,
+  emails: unknown,
+  opts: { revealInviter?: boolean } = {},
+): Promise<{ items: CheckedEmail[]; remaining: number }> {
+  const actor = requireGraduate(actorIn);
+  const list = Array.isArray(emails) ? emails.slice(0, MAX_BATCH).map((e) => String(e ?? "")) : [];
+  const items: CheckedEmail[] = [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const p = parseEmail(raw);
+    if (!p.ok) {
+      items.push({ email: raw, normalized: null, status: "invalid", message: p.reason });
+      continue;
+    }
+    if (seen.has(p.normalized)) {
+      items.push({ email: p.original, normalized: p.normalized, status: "repeated" });
+      continue;
+    }
+    seen.add(p.normalized);
+    items.push({ email: p.original, normalized: p.normalized, status: p.normalized === actor.email ? "self" : "ok" });
+  }
+  const norms = items.filter((i) => i.status === "ok").map((i) => i.normalized!);
+  if (norms.length) {
+    const [inv, grads] = await Promise.all([
+      getDb().query<{ email: string; inviter_id: string; label: string }>(
+        `SELECT i.guest_email_normalized AS email, i.inviter_id,
+                COALESCE(NULLIF(u.display_name, ''), u.email) AS label
+           FROM app.invitations i JOIN app.users u ON u.id = i.inviter_id
+          WHERE i.status = 'active' AND i.guest_email_normalized = ANY($1::text[])`,
+        [norms],
+      ),
+      getDb().query<{ email: string }>(
+        "SELECT email FROM app.users WHERE is_graduate AND status <> 'disabled' AND email = ANY($1::text[])",
+        [norms],
+      ),
+    ]);
+    const invBy = new Map(inv.rows.map((r) => [r.email, r]));
+    const gradSet = new Set(grads.rows.map((r) => r.email));
+    for (const it of items) {
+      if (it.status !== "ok") continue;
+      const hit = invBy.get(it.normalized!);
+      if (hit) {
+        it.status = hit.inviter_id === actor.id ? "mine" : "taken";
+        if (hit.inviter_id !== actor.id && opts.revealInviter) it.message = `Anotado por ${hit.label}`;
+      } else if (gradSet.has(it.normalized!)) {
+        it.status = "graduate";
+      }
+    }
+  }
+  const quota = await getQuota(actor.id);
+  return { items, remaining: quota.remaining };
+}
+
+const MAX_BATCH = 50;
+
+export interface BatchItemResult {
+  email: string;
+  outcome: InviteOutcome;
+}
+
+/**
+ * Anota varias entradas. Cada email es una operación independiente, atómica e
+ * idempotente (cada uno trae su propia clave), así que reintentar el lote
+ * completo nunca duplica ni descuenta de más. La planilla se sincroniza una vez al final.
+ */
+export async function inviteMany(
+  actorIn: Actor | null,
+  input: { items: unknown; ip?: string | null },
+  opts: { syncNow?: boolean; performedBy?: Actor } = {},
+): Promise<{ results: BatchItemResult[]; remaining: number }> {
+  const actor = requireGraduate(actorIn);
+  const raw = Array.isArray(input.items) ? input.items.slice(0, MAX_BATCH) : [];
+  const results: BatchItemResult[] = [];
+  for (const item of raw) {
+    const { email, idempotencyKey } = (item ?? {}) as { email?: unknown; idempotencyKey?: unknown };
+    const outcome = await inviteGuest(
+      actor,
+      { email, idempotencyKey, ip: input.ip },
+      { syncNow: false, performedBy: opts.performedBy },
+    );
+    results.push({ email: String(email ?? ""), outcome });
+  }
+  if (opts.syncNow !== false && results.some((r) => r.outcome.kind === "created")) {
+    await syncAfterWrite("invite_batch");
+    // Actualiza el estado de sincronización informado.
+    const ids = results.flatMap((r) => (r.outcome.kind === "created" ? [r.outcome.invitationId] : []));
+    const { rows } = await getDb().query<{ id: string; sync_status: string }>(
+      "SELECT id, sync_status FROM app.invitations WHERE id = ANY($1::uuid[])",
+      [ids],
+    );
+    const synced = new Set(rows.filter((r) => r.sync_status === "synced").map((r) => r.id));
+    for (const r of results) {
+      if (r.outcome.kind === "created") r.outcome = { ...r.outcome, sync: synced.has(r.outcome.invitationId) ? "synced" : "pending" };
+    }
+  }
+  const quota = await getQuota(actor.id);
+  return { results, remaining: quota.remaining };
 }

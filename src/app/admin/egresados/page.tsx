@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, Card, EmptyState, PageTitle, dangerButtonClass, inputClass, secondaryButtonClass } from "@/components/ui";
@@ -13,7 +14,7 @@ export default async function GraduatesPage() {
   const users = await listUsers(actor);
   return (
     <div className="space-y-5">
-      <PageTitle title="Egresados autorizados" subtitle="Solo las personas de esta lista pueden crear una cuenta. Cada egresado recibe 16 entradas." />
+      <PageTitle title="Egresados autorizados" subtitle="Solo las personas de esta lista pueden crear una cuenta. Cada egresado recibe 16 entradas. Tocá un nombre para ver su ficha: entradas restantes, mails anotados y correcciones." />
       <Card>
         <h2 className="text-lg font-semibold">Importar lista</h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -42,15 +43,21 @@ export default async function GraduatesPage() {
               <li key={u.id} className="space-y-2 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-medium">{u.displayName ?? <span className="text-slate-400">(sin nombre)</span>}</p>
+                    {u.isGraduate ? (
+                      <Link href={`/admin/egresados/${u.id}`} className="font-medium text-brand-700 hover:underline">
+                        {u.displayName ?? "(sin nombre)"}
+                      </Link>
+                    ) : (
+                      <p className="font-medium">{u.displayName ?? <span className="text-slate-400">(sin nombre)</span>}</p>
+                    )}
                     <p className="truncate text-sm text-slate-500">{u.email}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {u.isAdmin ? <Badge tone="brand">Admin</Badge> : null}
                     {u.status === "active" ? <Badge tone="green">Registrado</Badge> : u.status === "pending" ? <Badge tone="amber">Sin registrarse</Badge> : <Badge tone="red">Deshabilitado</Badge>}
                     {u.isGraduate ? (
-                      <Badge>
-                        {u.used}/{u.initialQuota} entradas · {u.poolInvited} del pool
+                      <Badge tone={u.initialQuota - u.used === 0 ? "red" : "brand"}>
+                        Quedan {u.initialQuota - u.used} de {u.initialQuota} · {u.poolInvited} del pool
                       </Badge>
                     ) : null}
                   </div>

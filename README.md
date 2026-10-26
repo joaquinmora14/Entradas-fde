@@ -1,6 +1,7 @@
 # Invitaciones · Fiesta de Egresados
 
-Aplicación web para que cada egresado registre a sus invitados (16 entradas por persona), con un pool común de
+Aplicación web para que cada egresado **anote a qué mails les dio sus entradas** (16 por persona) y así ningún mail
+se repita entre egresados. La app no envía nada a los invitados: es un registro compartido. Incluye un pool común de
 "Personas fuera de lista", panel público de cupos, panel de administración y exportación automática a Google Sheets.
 
 - **Producción:** https://entradas-fde.vercel.app
@@ -50,12 +51,20 @@ Aplicación web para que cada egresado registre a sus invitados (16 entradas por
 
 ### Egresados
 1. Entrar a https://entradas-fde.vercel.app/registro con el email que figura en la lista autorizada y crear la contraseña.
-2. En **Mis entradas**: escribir el email del invitado → **Confirmar invitación**.
+2. En **Mis entradas**: pegar un mail o la lista completa que les mandaron (nombre, mail, DNI… en cualquier formato) →
+   **Revisar mails**. La app extrae solo los mails, avisa cuáles ya tienen entrada, cuáles están repetidos y sugiere
+   correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar N entradas**.
 3. En **Fuera de lista**: **Invitar a alguien del pool** asigna automáticamente a una persona.
 
+La extracción de mails es determinística (reglas, no IA): es exacta, instantánea, gratuita y los datos de los
+invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes como `juan arroba gmail punto com`.
+
 ### Administración (`/admin`)
-- **Egresados:** importar la lista (CSV o texto `email,nombre`, el nombre es opcional), renombrar, deshabilitar,
-  quitar a quien todavía no se registró, y **generar enlaces de activación / nueva contraseña** (válidos 24 h, un uso).
+- **Egresados:** importar la lista (CSV o texto `email,nombre`, el nombre es opcional), ver cuántas entradas le quedan
+  a cada uno, renombrar, deshabilitar, quitar a quien todavía no se registró, y **generar enlaces de activación / nueva
+  contraseña** (válidos 24 h, un uso).
+- **Ficha de cada egresado** (tocar su nombre): entradas restantes y usadas, todos los mails que anotó, anular o
+  corregir cada uno, y **anotar entradas en su nombre** (usa su cupo y queda auditado como hecho por el admin).
 - **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**
   (mantiene el cupo).
 - **Pool:** agregar emails uno por uno o por CSV (informa agregados, duplicados, inválidos y rechazados por estar ya

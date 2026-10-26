@@ -121,9 +121,9 @@ describe("Credencial de Google", () => {
     expect(parseServiceAccount(`'${json}'`).client_email).toBe(obj.client_email);
     expect(parseServiceAccount(Buffer.from(json).toString("base64")).client_email).toBe(obj.client_email);
     expect(parseServiceAccount(json.replace(/\\n/g, "\n")).private_key).toContain("ABC");
-    expect(() => parseServiceAccount('{"private_key": "SECRETO-123"')).toThrow(/largo/);
+    expect(() => parseServiceAccount('{"private_key": SECRETO-123 ,')).toThrow(/largo/);
     try {
-      parseServiceAccount('{"private_key": "SECRETO-123"');
+      parseServiceAccount('{"private_key": SECRETO-123 ,');
     } catch (err) {
       expect((err as Error).message).not.toContain("SECRETO");
     }

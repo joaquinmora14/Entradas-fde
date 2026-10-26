@@ -1,36 +1,143 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Invitaciones · Fiesta de Egresados
 
-## Getting Started
+Aplicación web para que cada egresado registre a sus invitados (16 entradas por persona), con un pool común de
+"Personas fuera de lista", panel público de cupos, panel de administración y exportación automática a Google Sheets.
 
-First, run the development server:
+- **Producción:** https://entradas-fde.vercel.app
+- **Cupos públicos:** https://entradas-fde.vercel.app/cupos
+- **Stack:** Next.js 16 (App Router, Server Actions) · PostgreSQL (Neon) · Vercel · API oficial de Google Sheets
+
+---
+
+## Cómo funciona
+
+| Concepto | Regla |
+|---|---|
+| Identidad de un invitado | Su **email normalizado** (minúsculas, sin espacios; en Gmail se ignoran puntos y `+sufijo`). Único en toda la app. |
+| Cupo individual | 16 entradas por egresado. Una invitación directa descuenta exactamente 1. |
+| Pool “Fuera de lista” | Lista común cargada por el admin. “Invitar a alguien del pool” asigna automáticamente a la **primera persona cargada que siga disponible (FIFO)**: es la regla más simple, predecible y justa. No usa entradas individuales. |
+| Fuente de verdad | PostgreSQL. Google Sheets es una copia operativa que se sincroniza sola. |
+| Planilla | Hoja **Invitados** con exactamente dos columnas: `Invitado` (email) e `Invitado por` (nombre del egresado). Una fila por invitado. |
+
+### Garantías de consistencia
+
+- **Unicidad global:** índice único parcial `invitations(guest_email_normalized) WHERE status = 'active'`. Dos egresados
+  que invitan al mismo email al mismo tiempo producen como máximo una invitación (además se serializa por email con un
+  `pg_advisory_xact_lock`).
+- **Cupo atómico:** un trigger descuenta la entrada en la **misma transacción** que crea la invitación y una restricción
+  `CHECK (used <= initial_quota)` impide superar el cupo, incluso con solicitudes simultáneas. Si algo falla, no se
+  descuenta nada.
+- **Pool atómico:** la persona se toma con `SELECT … FOR UPDATE SKIP LOCKED` y se marca asignada en la misma
+  transacción que crea la invitación. Si la transacción falla, sigue disponible. Una persona asignada nunca vuelve a
+  estar disponible (trigger) y no puede reimportarse (email único en el pool).
+- **Idempotencia:** cada envío de formulario lleva una clave única. Reintentar (doble toque, corte de red) devuelve
+  el mismo resultado sin crear otra invitación ni asignar otra persona.
+- **Outbox transaccional:** al crear o anular una invitación, un trigger inserta una tarea en `app.sheet_sync_jobs`
+  dentro de la misma transacción. Si el servidor se reinicia o Google está caído, la tarea queda guardada.
+- **Reintentos sin duplicados:** antes de escribir, el sincronizador **lee la hoja** y solo agrega los emails que no
+  están. Si una escritura anterior llegó a Google pero la respuesta se perdió, el reintento la detecta y no la repite.
+  Un *lease* en la base garantiza que un solo proceso escriba a la vez. Espera progresiva: 15 s, 30 s, 60 s… hasta 30 min.
+- **Disparadores de la sincronización** (no dependen de que nadie tenga el navegador abierto):
+  1. Inmediatamente después de cada invitación (la respuesta dice si quedó en la planilla o pendiente).
+  2. GitHub Actions cada 5 minutos (`.github/workflows/sheets-sync.yml` → `POST /api/sync/kick`).
+  3. Al cargar el panel o los cupos (después de responder, con `after()`).
+  4. Vercel Cron diario con reconciliación completa (`/api/cron/sync?reconcile=1`, protegido con `CRON_SECRET`).
+  5. Botón “Sincronizar pendientes ahora” en Admin → Planilla.
+- **Reconciliación:** Admin → Planilla → “Comparar” muestra faltantes, duplicados, nombres incorrectos y filas sin
+  invitación; “Reconciliar” deja la hoja idéntica a la base sin tocar las invitaciones.
+
+## Uso
+
+### Egresados
+1. Entrar a https://entradas-fde.vercel.app/registro con el email que figura en la lista autorizada y crear la contraseña.
+2. En **Mis entradas**: escribir el email del invitado → **Confirmar invitación**.
+3. En **Fuera de lista**: **Invitar a alguien del pool** asigna automáticamente a una persona.
+
+### Administración (`/admin`)
+- **Egresados:** importar la lista (CSV o texto `email,nombre`, el nombre es opcional), renombrar, deshabilitar,
+  quitar a quien todavía no se registró, y **generar enlaces de activación / nueva contraseña** (válidos 24 h, un uso).
+- **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**
+  (mantiene el cupo).
+- **Pool:** agregar emails uno por uno o por CSV (informa agregados, duplicados, inválidos y rechazados por estar ya
+  invitados), desactivar, reactivar o eliminar personas disponibles.
+- **Planilla:** estado, tareas pendientes y errores, sincronización manual, comparación y reconciliación.
+- **Auditoría:** registro de logins, registros, invitaciones, importaciones y correcciones.
+- **Ajustes:** código de registro opcional (además de la lista autorizada).
+
+**Quién es administrador:** los emails de la variable `BOOTSTRAP_ADMIN_EMAILS` (configurada en Vercel). Al registrarse o
+iniciar sesión con uno de esos emails la cuenta queda como administradora. Nadie puede volverse admin desde el navegador.
+
+**Recuperación de acceso:** si no hay proveedor de email configurado, el administrador genera un enlace personal desde
+*Egresados → Acciones* y se lo envía a la persona. Opcionalmente, con `RESEND_API_KEY` + `EMAIL_FROM` los egresados
+reciben el enlace por email desde `/recuperar`.
+
+## Google Sheets: configuración
+
+La planilla ya existe en el Drive del organizador (privada) y su ID está en `GOOGLE_SHEETS_SPREADSHEET_ID`.
+Solo falta una **cuenta de servicio** de Google con permiso de edición:
+
+1. Entrar a https://console.cloud.google.com/ → selector de proyectos → **Proyecto nuevo** (ej. `entradas-fde`) → Crear.
+2. Habilitar la API: https://console.cloud.google.com/apis/library/sheets.googleapis.com → **Habilitar**.
+3. **IAM y administración → Cuentas de servicio → Crear cuenta de servicio** (ej. `entradas-fde-sheets`). Sin roles → Listo.
+4. Abrir la cuenta → **Claves → Agregar clave → Crear clave nueva → JSON**. Se descarga un archivo `.json`.
+5. En Vercel → proyecto `entradas-fde` → **Settings → Environment Variables → Add**:
+   `GOOGLE_SERVICE_ACCOUNT_JSON` = el contenido completo del archivo (Production y Preview, tipo *Sensitive*).
+6. Compartir la planilla con el `client_email` de la cuenta de servicio (`…@….iam.gserviceaccount.com`) como **Editor**.
+7. Redesplegar. Verificar en **Admin → Planilla → Comparar planilla con la base**.
+
+Nunca subas el archivo JSON al repositorio (es público).
+
+## Variables de entorno
+
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | Conexión con pooling (Neon `-pooler`) para la app. |
+| `DATABASE_URL_MIGRATIONS` | Conexión directa para aplicar migraciones en el build. |
+| `BOOTSTRAP_ADMIN_EMAILS` | Emails administradores, separados por coma. |
+| `CRON_SECRET` | Protege `/api/cron/sync` (Vercel Cron lo envía automáticamente). |
+| `APP_URL` | URL pública, para los enlaces de recuperación. |
+| `GOOGLE_SHEETS_SPREADSHEET_ID` | ID de la planilla. |
+| `GOOGLE_SHEETS_TAB` | Nombre de la hoja (por defecto `Invitados`). |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON de la cuenta de servicio (texto o base64). |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Opcional: emails de recuperación. |
+
+## Desarrollo local
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+# PostgreSQL local
+export DATABASE_URL=postgres://usuario:clave@localhost:5432/fde_dev
+npm run migrate
+BOOTSTRAP_ADMIN_EMAILS=tu@email.com npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Pruebas
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+export TEST_DATABASE_URL=postgres://usuario:clave@localhost:5432/fde_test   # se borra y recrea el esquema "app"
+npm test
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Las pruebas automatizadas corren contra un **PostgreSQL real** y usan una **hoja simulada en memoria** que puede
+“caerse” o perder la respuesta después de escribir. Cubren autenticación, registro autorizado, normalización, cupos,
+duplicados, concurrencia, idempotencia, errores sin descuentos, protección de rutas administrativas, panel público sin
+emails, outbox con reinicio, caídas de Google, reintentos sin duplicados, reconciliación y todos los casos del pool.
+La escritura real en Google Sheets se verifica en producción (ver “Google Sheets: configuración”).
 
-## Learn More
+## Estructura
 
-To learn more about Next.js, take a look at the following resources:
+```
+migrations/           SQL versionado (se aplica en cada build con scripts/migrate.mjs)
+src/server/           lógica de negocio (sin dependencias de Next): auth, invitaciones, pool, admin, sheets/
+src/app/              páginas y Server Actions
+src/components/       UI
+tests/                pruebas (Vitest + PostgreSQL)
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Seguridad
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Contraseñas con **argon2id** (`@node-rs/argon2`); sesiones con token aleatorio en cookie `httpOnly`/`Secure`
+  (`__Host-`), solo el hash se guarda en la base; límite de intentos de login por email e IP.
+- Todo el esquema vive en `app`, no expuesto por ninguna API pública; los roles `anon`/`authenticated` no tienen acceso.
+- Server Actions con verificación de origen (CSRF) de Next.js; los permisos se validan en el servidor en cada acción.
+- El panel público solo expone nombre y números. La planilla es privada (compartida solo con la cuenta de servicio).

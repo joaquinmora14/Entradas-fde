@@ -72,6 +72,20 @@ export class GoogleSheetsClient implements SheetsClient {
       const found = meta.sheets.find((s) => s.properties.title === this.cfg.tab);
       if (found) {
         this.sheetId = found.properties.sheetId;
+      } else if (meta.sheets.length === 1) {
+        // Planilla nueva con una sola pestaña genérica: se renombra a "Invitados".
+        const only = meta.sheets[0].properties;
+        await this.request("POST", `${API}/${this.cfg.spreadsheetId}:batchUpdate`, {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: { sheetId: only.sheetId, title: this.cfg.tab },
+                fields: "title",
+              },
+            },
+          ],
+        });
+        this.sheetId = only.sheetId;
       } else {
         const res = await this.request<{ replies: Array<{ addSheet: { properties: { sheetId: number } } }> }>(
           "POST",

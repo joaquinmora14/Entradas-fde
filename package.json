@@ -8,8 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "migrate": "node scripts/migrate.mjs",
-    "sheets:verify": "tsx scripts/verify-sheets.ts"
+    "migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",

@@ -54,7 +54,10 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 2. En **Mis entradas**: pegar un mail o la lista completa que les mandaron (nombre, mail, DNI… en cualquier formato) →
    **Revisar mails**. La app extrae solo los mails, avisa cuáles ya tienen entrada, cuáles están repetidos y sugiere
    correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar N entradas**.
-3. En **Fuera de lista**: **Invitar a alguien del pool** asigna automáticamente a una persona.
+3. En **Fuera de lista**: ver la lista común, **sumar gente** pegando la lista tal como llegó (se toman solo los mails;
+   no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno mismo cargó mientras nadie lo haya
+   invitado, e **Invitar a alguien del pool**, que asigna automáticamente a la primera persona cargada (FIFO exacto por
+   orden de carga).
 
 La extracción de mails es determinística (reglas, no IA): es exacta, instantánea, gratuita y los datos de los
 invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes como `juan arroba gmail punto com`.

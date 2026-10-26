@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/server/db";
 import { inviteFromPool, inviteGuest, getDashboard } from "@/server/invitations";
-import { importPool, listPool, updatePoolPerson } from "@/server/pool-admin";
+import { getPoolBoard, importPool, listPool, removeOwnPoolPerson, updatePoolPerson } from "@/server/pool-admin";
 import { cancelInvitation } from "@/server/admin";
 import { MemorySheetsClient } from "@/server/sheets/memory";
 import { makeAllPendingDue, runSheetSync, setSheetsClientForTests } from "@/server/sheets/sync";
@@ -193,5 +193,40 @@ describe("Personas fuera de lista (pool común)", () => {
     expect(board.graduates.find((g) => g.name === "Juan")).toMatchObject({ used: 1, remaining: 15 });
     expect(board.poolAvailable).toBe(1);
     expect(board.graduates).toHaveLength(2); // el admin que no es egresado no aparece
+  });
+
+  it("cualquier egresado puede sumar gente al pool pegando una lista y ver la lista", async () => {
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const maria = await makeUser({ email: "maria@example.com", name: "María" });
+    await inviteGuest(maria, { email: "con.entrada@example.com", idempotencyKey: key() }, { syncNow: false });
+    const r = await importPool(juan, "Pedro - pedro@gmail.com - 40111222\nLaura laura@hotmail.com 41000111\ncon.entrada@example.com\nmaria@example.com");
+    expect(r.added).toEqual(["pedro@gmail.com", "laura@hotmail.com"]);
+    expect(r.conflicts).toEqual([
+      { email: "con.entrada@example.com", reason: "Ya tiene entrada" }, // al egresado no se le dice quién
+      { email: "maria@example.com", reason: "Es un egresado" },
+    ]);
+    const board = await getPoolBoard(maria);
+    expect(board.available.map((p) => [p.email, p.addedBy, p.mine])).toEqual([
+      ["pedro@gmail.com", "Juan", false],
+      ["laura@hotmail.com", "Juan", false],
+    ]);
+    // María invita a la primera (FIFO) y aparece como asignada.
+    await inviteFromPool(maria, { idempotencyKey: key() }, { syncNow: false });
+    const after = await getPoolBoard(juan);
+    expect(after.available.map((p) => p.email)).toEqual(["laura@hotmail.com"]);
+    expect(after.assigned).toMatchObject([{ email: "pedro@gmail.com", invitedBy: "María" }]);
+  });
+
+  it("un egresado solo puede quitar personas que cargó él y que nadie invitó", async () => {
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const maria = await makeUser({ email: "maria@example.com", name: "María" });
+    await importPool(juan, "a@example.com\nb@example.com");
+    const [a, b] = (await getPoolBoard(juan)).available;
+    await expect(removeOwnPoolPerson(maria, a.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await removeOwnPoolPerson(juan, a.id);
+    expect((await getPoolBoard(juan)).available.map((p) => p.email)).toEqual(["b@example.com"]);
+    await inviteFromPool(maria, { idempotencyKey: key() }, { syncNow: false }); // asigna b
+    await expect(removeOwnPoolPerson(juan, b.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(getPoolBoard(null)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
   });
 });

@@ -22,6 +22,13 @@ export function requireGraduate(actor: Actor | null | undefined): Actor {
   return actor;
 }
 
+/** Egresados y administradores (p. ej. para cargar personas al pool común). */
+export function requireGraduateOrAdmin(actor: Actor | null | undefined): Actor {
+  if (!actor) throw new AppError("UNAUTHENTICATED", "Tenés que iniciar sesión.");
+  if (!actor.isGraduate && !actor.isAdmin) throw new AppError("FORBIDDEN", "No tenés permisos para esta acción.");
+  return actor;
+}
+
 export function actorLabel(a: { displayName: string | null; email: string }): string {
   return a.displayName?.trim() || a.email;
 }

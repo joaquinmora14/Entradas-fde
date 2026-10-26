@@ -188,7 +188,7 @@ export async function inviteFromPool(
         const pick = await c.query<{ id: string; email: string; email_normalized: string }>(
           `SELECT id, email, email_normalized FROM app.pool_people
             WHERE status = 'available'
-            ORDER BY added_at, id
+            ORDER BY seq
             LIMIT 1
             FOR UPDATE SKIP LOCKED`,
         );

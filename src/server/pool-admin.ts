@@ -1,5 +1,5 @@
 import { audit } from "./audit";
-import { requireAdmin, type Actor } from "./actor";
+import { requireAdmin, requireGraduateOrAdmin, type Actor } from "./actor";
 import { getDb, pgRaisedCode, withTransaction } from "./db";
 import { parseCsv, MAX_IMPORT_ROWS } from "./csv";
 import { parseEmail } from "./email";
@@ -19,11 +19,15 @@ const STATUS_LABEL: Record<string, string> = {
   retired: "retirada",
 };
 
-/** Agrega uno o varios emails al pool (texto libre o CSV: se toma la celda que contiene "@"). */
+/**
+ * Agrega personas al pool común desde texto libre o CSV (se toman solo los mails).
+ * Lo pueden usar el administrador y cualquier egresado.
+ */
 export async function importPool(actorIn: Actor | null, text: string): Promise<PoolImportReport> {
-  const actor = requireAdmin(actorIn);
+  const actor = requireGraduateOrAdmin(actorIn);
+  const limit = actor.isAdmin ? MAX_IMPORT_ROWS : 100;
   const rows = parseCsv(text ?? "");
-  if (rows.length > MAX_IMPORT_ROWS) throw new AppError("VALIDATION", `Máximo ${MAX_IMPORT_ROWS} filas por importación.`);
+  if (rows.length > limit) throw new AppError("VALIDATION", `Máximo ${limit} filas por vez.`);
   const report: PoolImportReport = { added: [], duplicates: [], invalid: [], conflicts: [] };
   const seen = new Set<string>();
   const candidates: Array<{ original: string; normalized: string }> = [];
@@ -74,7 +78,10 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
           [p.normalized],
         );
         if (invited.rows[0]) {
-          report.conflicts.push({ email: p.original, reason: `Ya fue invitada por ${invited.rows[0].label}` });
+          report.conflicts.push({
+            email: p.original,
+            reason: actor.isAdmin ? `Ya fue invitada por ${invited.rows[0].label}` : "Ya tiene entrada",
+          });
           continue;
         }
         const grad = await c.query("SELECT 1 FROM app.users WHERE email = $1 AND is_graduate", [p.normalized]);
@@ -206,4 +213,64 @@ export async function updatePoolPerson(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Vista del pool para los egresados (no es pública: requiere sesión)
+// ---------------------------------------------------------------------------
+export interface PoolBoard {
+  available: Array<{ id: string; email: string; addedBy: string | null; mine: boolean; addedAt: string }>;
+  assigned: Array<{ email: string; invitedBy: string; assignedAt: string }>;
+}
+
+export async function getPoolBoard(actorIn: Actor | null): Promise<PoolBoard> {
+  const actor = requireGraduateOrAdmin(actorIn);
+  const db = getDb();
+  const [avail, assigned] = await Promise.all([
+    db.query(
+      `SELECT p.id, p.email, p.added_at, p.added_by,
+              COALESCE(NULLIF(u.display_name, ''), CASE WHEN u.is_admin AND NOT u.is_graduate THEN 'Organización' END) AS added_by_name
+         FROM app.pool_people p LEFT JOIN app.users u ON u.id = p.added_by
+        WHERE p.status = 'available'
+        ORDER BY p.seq`,
+    ),
+    db.query(
+      `SELECT p.email, p.assigned_at, COALESCE(NULLIF(u.display_name, ''), 'Egresado') AS invited_by
+         FROM app.pool_people p JOIN app.users u ON u.id = p.assigned_to
+        WHERE p.status = 'assigned'
+        ORDER BY p.assigned_at DESC
+        LIMIT 500`,
+    ),
+  ]);
+  return {
+    available: avail.rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      addedBy: r.added_by_name,
+      mine: r.added_by === actor.id,
+      addedAt: r.added_at.toISOString(),
+    })),
+    assigned: assigned.rows.map((r) => ({ email: r.email, invitedBy: r.invited_by, assignedAt: r.assigned_at.toISOString() })),
+  };
+}
+
+/** Un egresado quita del pool a alguien que cargó él mismo y que todavía nadie invitó. */
+export async function removeOwnPoolPerson(actorIn: Actor | null, id: string): Promise<void> {
+  const actor = requireGraduateOrAdmin(actorIn);
+  if (actor.isAdmin) return updatePoolPerson(actor, id, "delete");
+  await withTransaction(async (c) => {
+    const { rows } = await c.query<{ email_normalized: string; status: string; added_by: string | null }>(
+      "SELECT email_normalized, status, added_by FROM app.pool_people WHERE id = $1 FOR UPDATE",
+      [id],
+    );
+    const p = rows[0];
+    if (!p) throw new AppError("NOT_FOUND", "La persona ya no está en el pool.");
+    if (p.added_by !== actor.id) throw new AppError("FORBIDDEN", "Solo podés quitar personas que cargaste vos.");
+    if (p.status !== "available") throw new AppError("CONFLICT", "Esa persona ya fue invitada: no se puede quitar.");
+    await c.query("DELETE FROM app.pool_people WHERE id = $1", [id]);
+    await audit(
+      { actorId: actor.id, actorEmail: actor.email, action: "pool_delete", result: "success", target: id, details: { email: p.email_normalized, by: "graduate" } },
+      c,
+    );
+  });
 }

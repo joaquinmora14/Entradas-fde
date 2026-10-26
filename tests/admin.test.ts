@@ -33,7 +33,6 @@ describe("Administración", () => {
       () => getAdminOverview(juan),
       () => listAuditLogs(juan),
       () => updateRegistrationCode(juan, "abcd"),
-      () => importPool(juan, "p@example.com"),
       () => listPool(juan),
       () => updatePoolPerson(juan, "00000000-0000-4000-8000-000000000000", "delete"),
     ];

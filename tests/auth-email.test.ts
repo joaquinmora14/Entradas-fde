@@ -129,3 +129,11 @@ describe("Credencial de Google", () => {
     }
   });
 });
+
+describe("Credencial de Google pegada sin la llave final", () => {
+  it("se completa la llave de cierre faltante", async () => {
+    const { parseServiceAccount } = await import("@/server/sheets/google");
+    const json = JSON.stringify({ client_email: "x@p.iam.gserviceaccount.com", private_key: "k", universe_domain: "googleapis.com" }, null, 2);
+    expect(parseServiceAccount(json.slice(0, -1)).client_email).toBe("x@p.iam.gserviceaccount.com");
+  });
+});

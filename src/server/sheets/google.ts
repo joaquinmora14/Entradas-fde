@@ -42,8 +42,12 @@ export function parseServiceAccount(raw: string): { client_email?: string; priva
     const decoded = Buffer.from(text, "base64").toString("utf8").trim();
     if (decoded.startsWith("{")) text = decoded;
   }
+  // Al copiar desde el Bloc de notas a veces se pierde la llave de cierre final.
+  const closed = text.startsWith("{") && !text.endsWith("}") ? `${text}\n}` : text;
   const attempts = [
     text,
+    closed,
+    closed.replace(/\r?\n/g, "\\n"),
     // Saltos de línea reales dentro de los strings (p. ej. la clave PEM pegada "desescapada").
     text.replace(/\r?\n/g, "\\n"),
     text.replace(/\r?\n/g, ""),

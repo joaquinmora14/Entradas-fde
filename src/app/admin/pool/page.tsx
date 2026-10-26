@@ -29,9 +29,9 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
       </div>
       <Card>
         <h2 className="text-lg font-semibold">Agregar personas</h2>
-        <p className="mt-1 text-sm text-slate-600">Un email por línea, o subí un CSV (se toma la columna que tenga emails). Agregar al pool no crea filas en la planilla: solo aparecen cuando alguien las invita.</p>
+        <p className="mt-1 text-sm text-slate-600">Pegá la lista tal como te llegó (nombre, mail, DNI… una persona por línea) o subí un CSV: se toman solo los mails. Agregar al pool no crea filas en la planilla: solo aparecen cuando alguien las invita.</p>
         <ActionForm action={importPoolAction} className="mt-3" resetOnSuccess view="import-report">
-          <textarea name="text" rows={5} className={inputClass} placeholder={"persona@ejemplo.com\notra@ejemplo.com"} />
+          <textarea name="text" rows={5} className={inputClass} placeholder={"Juan Pérez - juan@gmail.com - 40123456\nAna López, ana@hotmail.com, 41222333"} />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain" className="text-sm" />
             <SubmitButton pendingText="Agregando…">Agregar al pool</SubmitButton>

@@ -3,6 +3,7 @@ import { requireAdmin, type Actor } from "./actor";
 import { getDb, pgRaisedCode, withTransaction } from "./db";
 import { parseCsv, MAX_IMPORT_ROWS } from "./csv";
 import { parseEmail } from "./email";
+import { extractEmails } from "@/lib/extract-emails";
 import { AppError } from "./errors";
 
 export interface PoolImportReport {
@@ -27,20 +28,28 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
   const seen = new Set<string>();
   const candidates: Array<{ original: string; normalized: string }> = [];
 
+  // Cada fila puede traer nombre, mail, DNI, etc.: se toman solo los mails (puede haber varios por fila).
   rows.forEach((cells, idx) => {
-    const value = cells.find((c) => c.includes("@")) ?? cells[0] ?? "";
-    if (idx === 0 && !value.includes("@")) return; // encabezado
-    const p = parseEmail(value);
-    if (!p.ok) {
-      report.invalid.push({ value, reason: p.reason });
+    const line = cells.join(" ");
+    const found = extractEmails(line);
+    if (found.length === 0) {
+      if (idx === 0) return; // encabezado
+      report.invalid.push({ value: line.slice(0, 120), reason: "No se encontró un mail válido" });
       return;
     }
-    if (seen.has(p.normalized)) {
-      report.duplicates.push({ email: p.original, reason: "Repetido dentro del archivo" });
-      return;
+    for (const { email } of found) {
+      const p = parseEmail(email);
+      if (!p.ok) {
+        report.invalid.push({ value: email, reason: p.reason });
+        continue;
+      }
+      if (seen.has(p.normalized)) {
+        report.duplicates.push({ email: p.original, reason: "Repetido dentro de la lista" });
+        continue;
+      }
+      seen.add(p.normalized);
+      candidates.push(p);
     }
-    seen.add(p.normalized);
-    candidates.push(p);
   });
 
   if (candidates.length) {

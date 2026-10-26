@@ -29,6 +29,16 @@ describe("Personas fuera de lista (pool común)", () => {
     expect(await available()).toBe(4);
   });
 
+  it("acepta listas tipo nombre / mail / DNI e informa las filas sin mail", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const report = await importPool(
+      admin,
+      "Nombre,Mail,DNI\nJuan Pérez,juan.p@gmail.com,40123456\nAna López,ANA@hotmail.com,41222333\nSin mail,,42000000\nPedro pedro@yahoo.com y su hermana sofi@yahoo.com",
+    );
+    expect(report.added).toEqual(["juan.p@gmail.com", "ana@hotmail.com", "pedro@yahoo.com", "sofi@yahoo.com"]);
+    expect(report.invalid).toHaveLength(1);
+  });
+
   it("pool 3: no se puede agregar a alguien que ya fue invitado normalmente", async () => {
     const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const juan = await makeUser({ email: "juan@example.com", name: "Juan" });

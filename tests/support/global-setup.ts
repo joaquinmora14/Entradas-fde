@@ -1,5 +1,4 @@
 import pg from "pg";
-// @ts-expect-error módulo JS sin tipos
 import { migrate } from "../../scripts/migrate.mjs";
 
 export default async function setup() {

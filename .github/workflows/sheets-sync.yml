@@ -1,0 +1,22 @@
+# Reintenta cada 5 minutos las sincronizaciones pendientes con Google Sheets.
+# Solo llama a un endpoint público que procesa tareas vencidas del outbox (sin datos ni parámetros).
+name: Reintento de sincronización con Google Sheets
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Disparar sincronización
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          url="${APP_URL:-https://entradas-fde.vercel.app}"
+          curl -fsS -m 90 -X POST "$url/api/sync/kick" || echo "No se pudo contactar la app (se reintentará)"

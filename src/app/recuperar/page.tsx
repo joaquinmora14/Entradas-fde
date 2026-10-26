@@ -1,0 +1,22 @@
+import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth-shell";
+import { RequestResetForm } from "@/components/auth-forms";
+import { TextLink } from "@/components/ui";
+
+export const metadata: Metadata = { title: "Recuperar acceso" };
+
+export default function RecoverPage() {
+  return (
+    <AuthShell
+      title="Recuperar acceso"
+      subtitle="Te ayudamos a crear una nueva contraseña."
+      footer={
+        <p>
+          <TextLink href="/login">Volver a ingresar</TextLink>
+        </p>
+      }
+    >
+      <RequestResetForm />
+    </AuthShell>
+  );
+}

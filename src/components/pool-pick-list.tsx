@@ -87,11 +87,6 @@ export function PoolPickList({
                 </li>
               ))}
             </ul>
-            {result.emails.length > 1 ? (
-              <div className="mt-2">
-                <CopyButton text={result.emails.join(", ")} label="Copiar todos los mails" className="px-3 py-2 text-sm" />
-              </div>
-            ) : null}
             <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-base font-extrabold text-amber-950">
               ⚠️ Ahora mandales VOS la invitación a {result.emails.length === 1 ? "este mail" : "estos mails"}: la app no les manda nada.
             </p>
@@ -154,7 +149,6 @@ export function PoolPickList({
                   >
                     {busyId === g.id ? "Dando…" : n === 1 ? "Darle mi entrada" : `Darles mis ${n} entradas`}
                   </button>
-                  {n > 1 ? <CopyButton text={g.people.map((p) => p.email).join(", ")} label="Copiar todos" /> : null}
                 </div>
                 {short && remaining > 0 ? (
                   <p className="mt-1.5 text-xs font-medium text-slate-600">

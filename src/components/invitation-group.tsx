@@ -25,11 +25,6 @@ export function InvitationGroupCard({ group }: { group: InvitationGroup<MyInvita
           </li>
         ))}
       </ul>
-      {n > 1 ? (
-        <div className="mt-2">
-          <CopyButton text={group.items.map((i) => i.email).join(", ")} label="Copiar todos los mails" className="px-3 py-2 text-sm" />
-        </div>
-      ) : null}
     </div>
   );
 }

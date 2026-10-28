@@ -4,22 +4,21 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Ventana obligatoria: tapa toda la pantalla y no se puede cerrar hasta copiar los mails.
- * No se cierra tocando afuera ni con Escape: el único camino es "Copiar" y después
- * "Listo, ya los copié". Con un grupo se copian todos los mails juntos, separados por coma
- * (se pegan así en el "Para" de un mail).
+ * No se cierra tocando afuera ni con Escape. Los mails se copian de a uno (cada uno con su
+ * botón) y "Listo" se habilita recién cuando se copiaron todos.
  */
 export function MustCopyModal({ emails, onDone }: { emails: string[]; onDone: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const [manual, setManual] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [copied, setCopied] = useState<Set<number>>(new Set());
+  const [manual, setManual] = useState<Set<number>>(new Set());
+  const inputs = useRef<Array<HTMLInputElement | null>>([]);
+  const firstRef = useRef<HTMLButtonElement>(null);
   const many = emails.length > 1;
-  const text = emails.join(", ");
-  const copyRef = useRef<HTMLButtonElement>(null);
+  const allCopied = copied.size === emails.length;
 
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    copyRef.current?.focus();
+    firstRef.current?.focus();
     const block = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -33,18 +32,19 @@ export function MustCopyModal({ emails, onDone }: { emails: string[]; onDone: ()
     };
   }, []);
 
-  const copy = async () => {
+  const copy = async (idx: number) => {
+    const email = emails[idx];
     let ok = false;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(email);
       ok = true;
     } catch {
       // Navegadores sin permiso de portapapeles: se selecciona el texto y se usa el método clásico.
-      const input = inputRef.current;
+      const input = inputs.current[idx];
       if (input) {
         input.focus();
         input.select();
-        input.setSelectionRange(0, input.value.length);
+        input.setSelectionRange(0, email.length);
         try {
           ok = document.execCommand("copy");
         } catch {
@@ -52,8 +52,13 @@ export function MustCopyModal({ emails, onDone }: { emails: string[]; onDone: ()
         }
       }
     }
-    setCopied(true);
-    setManual(!ok);
+    setCopied((s) => new Set(s).add(idx));
+    setManual((s) => {
+      const n = new Set(s);
+      if (ok) n.delete(idx);
+      else n.add(idx);
+      return n;
+    });
   };
 
   return (
@@ -63,50 +68,57 @@ export function MustCopyModal({ emails, onDone }: { emails: string[]; onDone: ()
       aria-labelledby="must-copy-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4"
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+      <div className="flex max-h-full w-full max-w-md flex-col rounded-2xl bg-white p-5 shadow-2xl">
         <p id="must-copy-title" className="text-xl font-extrabold text-slate-900">
-          {many ? `⚠️ Copiá los ${emails.length} mails para mandarles la invitación` : "⚠️ Copiá el mail para mandarle la invitación"}
+          {many ? `⚠️ Copiá los ${emails.length} mails, de a uno, para mandarles la invitación` : "⚠️ Copiá el mail para mandarle la invitación"}
         </p>
         <p className="mt-1 text-sm font-semibold text-amber-800">
           {many
             ? "La app NO les manda nada: se la tenés que mandar VOS a cada uno de estos mails."
             : "La app NO le manda nada a esta persona: se la tenés que mandar VOS a este mail."}
         </p>
-        <textarea
-          ref={inputRef}
-          readOnly
-          value={many ? emails.join(",\n") : text}
-          rows={Math.min(emails.length, 8)}
-          aria-label={many ? "Mails del grupo" : "Mail de la persona"}
-          onFocus={(e) => e.currentTarget.select()}
-          className="mt-4 block w-full resize-none break-all rounded-xl border-2 border-slate-300 bg-slate-50 px-3 py-3 text-center text-lg font-bold leading-snug text-slate-900"
-        />
-        <button
-          ref={copyRef}
-          type="button"
-          onClick={copy}
-          className={`mt-3 w-full rounded-xl px-4 py-4 text-lg font-bold text-white shadow-sm transition ${
-            copied ? "bg-emerald-600 hover:bg-emerald-700" : "bg-brand-600 hover:bg-brand-700"
-          }`}
-        >
-          {copied
-            ? manual
-              ? "Seleccionado: mantené apretado para copiar"
-              : "¡Copiado! ✓"
-            : many
-              ? `Copiar los ${emails.length} mails`
-              : "Copiar mail"}
-        </button>
+        <ul className="mt-4 space-y-2 overflow-y-auto">
+          {emails.map((email, idx) => {
+            const done = copied.has(idx);
+            return (
+              <li key={email} className="rounded-xl border-2 border-slate-300 bg-slate-50 p-2">
+                <input
+                  ref={(el) => {
+                    inputs.current[idx] = el;
+                  }}
+                  readOnly
+                  value={email}
+                  aria-label={`Mail ${idx + 1}`}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="block w-full bg-transparent px-1 py-1 text-center text-base font-bold text-slate-900"
+                />
+                <button
+                  ref={idx === 0 ? firstRef : undefined}
+                  type="button"
+                  onClick={() => copy(idx)}
+                  aria-label={`Copiar ${email}`}
+                  className={`mt-1 w-full rounded-lg px-3 py-2.5 text-base font-bold text-white shadow-sm transition ${
+                    done ? "bg-emerald-600 hover:bg-emerald-700" : "bg-brand-600 hover:bg-brand-700"
+                  }`}
+                >
+                  {done ? (manual.has(idx) ? "Seleccionado: mantené apretado para copiar" : "¡Copiado! ✓") : "Copiar mail"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
         <button
           type="button"
           onClick={onDone}
-          disabled={!copied}
-          className="mt-2 w-full rounded-xl border-2 border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!allCopied}
+          className="mt-3 w-full shrink-0 rounded-xl border-2 border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {many ? "Listo, ya los copié" : "Listo, ya lo copié"}
         </button>
-        {!copied ? (
-          <p className="mt-2 text-center text-xs text-slate-500">Primero tocá “{many ? `Copiar los ${emails.length} mails` : "Copiar mail"}”.</p>
+        {!allCopied ? (
+          <p className="mt-2 text-center text-xs text-slate-500">
+            {many ? `Copiá cada mail (${copied.size} de ${emails.length}).` : "Primero tocá “Copiar mail”."}
+          </p>
         ) : null}
       </div>
     </div>

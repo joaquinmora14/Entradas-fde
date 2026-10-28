@@ -324,11 +324,6 @@ export function BulkInviteForm({
                 </li>
               ))}
             </ul>
-            {done.emails.length > 1 ? (
-              <div className="mt-2">
-                <CopyButton text={done.emails.join(", ")} label="Copiar todos los mails" className="px-3 py-2 text-sm" />
-              </div>
-            ) : null}
           </div>
         </div>
       ) : null}

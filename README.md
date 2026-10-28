@@ -57,15 +57,15 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 2. En **Mis entradas**: pegar el mensaje que les mandaron (nombre, mail, DNI… en cualquier formato), un grupo por vez →
    **Revisar mails**. La app extrae solo los mails, avisa cuáles ya tienen entrada, cuáles están repetidos y sugiere
    correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar el grupo**: se anotan todos juntos. En “Mails que
-   anotaste” se ven agrupados, con **Copiar todos los mails**.
+   anotaste” se ven agrupados, cada mail con su botón **Copiar**.
 3. En **Fuera de lista**: ver la lista común por grupos, **sumar gente** pegando el mensaje tal como llegó (las personas de
    un mismo mensaje quedan como un grupo; no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno
    mismo cargó mientras nadie lo haya invitado, y **Darles mis entradas** al grupo que elija (una por persona). Después
-   aparece una ventana que no se puede cerrar hasta tocar **Copiar los mails**.
+   aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón).
 
 **La app no envía nada a los invitados.** En cada paso (antes de pegar, al confirmar y después de anotar) se muestra un
 aviso grande: quien anota un mail tiene que mandarle la invitación a esa persona. Después de anotar se listan los mails
-con botones **Copiar** y **Copiar todos los mails**.
+con un botón **Copiar** en cada uno (se copian de a uno).
 
 La extracción de mails es determinística (reglas, no IA): es exacta, instantánea, gratuita y los datos de los
 invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes como `juan arroba gmail punto com`.

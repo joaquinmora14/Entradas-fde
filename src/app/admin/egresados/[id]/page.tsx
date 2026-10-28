@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { BulkInviteForm } from "@/components/bulk-invite-form";
-import { CopyButton } from "@/components/copy-button";
 import { SubmitButton } from "@/components/submit-button";
 import {
   Badge,
@@ -85,11 +84,6 @@ export default async function GraduateDetailPage({ params }: { params: Promise<{
                   <span className="text-xs text-slate-500">
                     {formatDateTime(g.createdAt)} · {g.items[0].source === "pool" ? "desde el pool" : "entradas individuales"}
                   </span>
-                  {g.items.length > 1 ? (
-                    <span className="ml-auto">
-                      <CopyButton text={g.items.map((i) => i.email).join(", ")} label="Copiar todos" />
-                    </span>
-                  ) : null}
                 </div>
                 <ul className="divide-y divide-slate-100">
                   {g.items.map((r) => (

@@ -4,7 +4,7 @@ import { InvitationGroupCard } from "@/components/invitation-group";
 import { PoolAddForm } from "@/components/pool-add-form";
 import { PoolPickList } from "@/components/pool-pick-list";
 import { Alert, Badge, Card, EmptyState, PageTitle, Stat } from "@/components/ui";
-import { addEmailsToPoolAction, checkPoolEmailsAction, poolInviteAction, removeFromPoolAction } from "@/app/actions/invite";
+import { addEmailsToPoolAction, checkPoolEmailsAction, poolInviteAction } from "@/app/actions/invite";
 import { requireActor } from "@/lib/session";
 import { getDashboard } from "@/server/invitations";
 import { getPoolBoard } from "@/server/pool-admin";
@@ -51,7 +51,7 @@ export default async function PoolPage() {
             <Alert tone="info">Ya usaste todas tus entradas: podés ver la lista y sumar gente, pero no darles entrada.</Alert>
           </div>
         ) : null}
-        <PoolPickList groups={board.available} remaining={d.quota.remaining} pick={poolInviteAction} remove={removeFromPoolAction} />
+        <PoolPickList groups={board.available} remaining={d.quota.remaining} pick={poolInviteAction} />
       </Card>
 
       <Card>

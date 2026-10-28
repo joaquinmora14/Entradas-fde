@@ -29,10 +29,11 @@ function groupRows(rows: PoolPersonRow[]) {
   return [...map.values()];
 }
 
-function sizeHref(status: string | undefined, size: number | null) {
+function sizeHref(status: string | undefined, size: number | null, search?: string) {
   const q = new URLSearchParams();
   if (status) q.set("status", status);
   if (size !== null) q.set("size", String(size));
+  if (search) q.set("q", search);
   const qs = q.toString();
   return qs ? `/admin/pool?${qs}` : "/admin/pool";
 }
@@ -52,12 +53,15 @@ function SizeChip({ href, active, label, count }: { href: string; active: boolea
   );
 }
 
-export default async function PoolAdminPage({ searchParams }: { searchParams: Promise<{ status?: string; size?: string }> }) {
-  const { status, size: sizeParam } = await searchParams;
+export default async function PoolAdminPage({ searchParams }: { searchParams: Promise<{ status?: string; size?: string; q?: string }> }) {
+  const { status, size: sizeParam, q: qParam } = await searchParams;
+  const search = typeof qParam === "string" ? qParam.trim().slice(0, 254) : "";
+  const term = search.toLowerCase();
   const actor = await getCurrentActor();
   const [rows, stats] = await Promise.all([listPool(actor, status), poolStats()]);
   // Filtro por tamaño de grupo (de menor a mayor).
-  const allGroups = groupRows(rows);
+  // Buscar a una persona: se muestran los grupos donde aparece.
+  const allGroups = groupRows(rows).filter((g) => !term || g.rows.some((r) => r.email.toLowerCase().includes(term)));
   const sizes = [...new Set(allGroups.map((g) => g.rows.length))].sort((a, b) => a - b);
   const wanted = Number(sizeParam);
   const size = sizes.includes(wanted) ? wanted : null;
@@ -86,6 +90,15 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
       </Card>
       <Card>
         <form method="get" className="mb-3 flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            name="q"
+            defaultValue={search}
+            placeholder="Buscar a una persona por su mail…"
+            aria-label="Buscar a una persona en la lista"
+            autoCapitalize="none"
+            className={inputClass}
+          />
           <select name="status" defaultValue={status ?? ""} className={`${inputClass} max-w-56`}>
             <option value="">Todas</option>
             <option value="available">Disponibles</option>
@@ -98,11 +111,11 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
         </form>
         {sizes.length > 1 ? (
           <div role="group" aria-label="Filtrar por tamaño de grupo" className="mb-3 flex flex-wrap gap-2">
-            <SizeChip href={sizeHref(status, null)} active={size === null} label="Todos" count={allGroups.length} />
+            <SizeChip href={sizeHref(status, null, search)} active={size === null} label="Todos" count={allGroups.length} />
             {sizes.map((n) => (
               <SizeChip
                 key={n}
-                href={sizeHref(status, n)}
+                href={sizeHref(status, n, search)}
                 active={size === n}
                 label={n === 1 ? "1 persona" : `${n} personas`}
                 count={allGroups.filter((g) => g.rows.length === n).length}
@@ -110,8 +123,8 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
             ))}
           </div>
         ) : null}
-        {rows.length === 0 ? (
-          <EmptyState title="No hay personas en el pool" />
+        {groups.length === 0 ? (
+          <EmptyState title={term ? `Nadie con “${search}” en la lista` : "No hay personas en el pool"} />
         ) : (
           <div className="space-y-3">
             {groups.map((g) => (
@@ -124,7 +137,7 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
                   {g.rows.map((p) => (
                     <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                       <div className="min-w-0">
-                        <p className="break-all font-medium">{p.email}</p>
+                        <p className={`break-all font-medium ${term && p.email.toLowerCase().includes(term) ? "rounded bg-amber-100 px-1" : ""}`}>{p.email}</p>
                         <p className="text-xs text-slate-500">
                           {p.status === "assigned" && p.assignedAt
                             ? `Invitada por ${p.assignedTo} · ${formatDateTime(p.assignedAt)}`

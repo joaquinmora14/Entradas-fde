@@ -62,8 +62,9 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
    correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar el grupo**: se anotan todos juntos. En “Mails que
    anotaste” se ven agrupados, cada mail con su botón **Copiar**.
 3. En **Fuera de lista**: ver la lista común por grupos, **sumar gente** pegando el mensaje tal como llegó (las personas de
-   un mismo mensaje quedan como un grupo; no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno
-   mismo cargó mientras nadie lo haya invitado, y **Darles mis entradas** al grupo que elija (una por persona). Después
+   un mismo mensaje quedan como un grupo; no se agregan los que ya están ni los que ya tienen entrada), **buscar a una
+   persona** por su mail, y **Darles mis entradas** al grupo que elija (una por persona). Nadie sale de la lista salvo
+   cuando recibe una entrada; los egresados no pueden quitar a nadie (solo el administrador). Después
    aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón). Arriba de la
    lista hay filtros por tamaño de grupo (Todos, 1 persona, 2 personas…, de menor a mayor).
 
@@ -84,7 +85,7 @@ invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes
   corregir cada uno, y **anotar entradas en su nombre** (usa su cupo y queda auditado como hecho por el admin).
 - **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**
   (mantiene el cupo).
-- **Pool:** ver los grupos, agregar pegando un mensaje (queda como un grupo) o por CSV (cada persona queda sola; informa
+- **Pool:** ver los grupos, buscar a una persona por su mail, **quitar gente (solo el administrador)**, agregar pegando un mensaje (queda como un grupo) o por CSV (cada persona queda sola; informa
   agregados, duplicados, inválidos y rechazados por estar ya invitados), desactivar, reactivar o eliminar personas disponibles.
 - **Planilla:** estado, tareas pendientes y errores, sincronización manual, comparación y reconciliación.
 - **Auditoría:** registro de logins, registros, invitaciones, importaciones y correcciones.

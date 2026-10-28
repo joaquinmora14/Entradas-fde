@@ -9,8 +9,7 @@ import {
   type PoolOutcome,
 } from "@/server/invitations";
 import { publicMessage } from "@/server/errors";
-import { checkPoolEmails, importPool, removeOwnPoolPerson } from "@/server/pool-admin";
-import type { FormState } from "@/lib/form-state";
+import { checkPoolEmails, importPool } from "@/server/pool-admin";
 import { clientIp, getCurrentActor } from "@/lib/session";
 
 /** Da una entrada a cada persona de un grupo de "fuera de lista" (todos juntos o ninguno). */
@@ -41,16 +40,6 @@ export async function inviteGroupAction(emails: string[], idempotencyKey: string
   revalidatePath("/panel");
   revalidatePath("/pool");
   return result;
-}
-
-export async function removeFromPoolAction(_prev: FormState, form: FormData): Promise<FormState> {
-  try {
-    await removeOwnPoolPerson(await getCurrentActor(), String(form.get("id") ?? ""));
-    revalidatePath("/pool");
-    return { ok: true, message: "Quitada del pool." };
-  } catch (err) {
-    return { ok: false, message: publicMessage(err) };
-  }
 }
 
 export async function checkPoolEmailsAction(emails: string[]) {

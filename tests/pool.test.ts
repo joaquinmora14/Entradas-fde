@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/server/db";
 import { checkGuestEmails, inviteFromPool, inviteGuest, inviteGroup, getDashboard } from "@/server/invitations";
-import { checkPoolEmails, getPoolBoard, importPool, listPool, removeOwnPoolPerson, updatePoolPerson } from "@/server/pool-admin";
+import { checkPoolEmails, getPoolBoard, importPool, listPool, updatePoolPerson } from "@/server/pool-admin";
 import { cancelInvitation } from "@/server/admin";
 import { MemorySheetsClient } from "@/server/sheets/memory";
 import { makeAllPendingDue, runSheetSync, setSheetsClientForTests } from "@/server/sheets/sync";
@@ -274,16 +274,24 @@ describe("Personas fuera de lista (pool común)", () => {
     expect(after.assigned).toMatchObject([{ emails: ["pedro@gmail.com", "laura@hotmail.com"], invitedBy: "María" }]);
   });
 
-  it("un egresado solo puede quitar personas que cargó él y que nadie invitó", async () => {
+  it("solo el administrador puede quitar gente de la lista; un egresado no, ni siquiera a quien cargó él", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
     const maria = await makeUser({ email: "maria@example.com", name: "María" });
     await importPool(juan, "a@example.com\nb@example.com");
     const [a, b] = (await getPoolBoard(juan)).available[0].people;
-    await expect(removeOwnPoolPerson(maria, a.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await removeOwnPoolPerson(juan, a.id);
+    for (const who of [juan, maria]) {
+      for (const op of ["delete", "retire"] as const) {
+        await expect(updatePoolPerson(who, a.id, op)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      }
+    }
+    expect(emailsOf(await getPoolBoard(juan))).toEqual(["a@example.com", "b@example.com"]);
+    // El administrador sí puede.
+    await updatePoolPerson(admin, a.id, "delete");
     expect(emailsOf(await getPoolBoard(juan))).toEqual(["b@example.com"]);
-    await inviteFromPool(maria, { poolGroupId: await oldestId(), idempotencyKey: key() }, { syncNow: false }); // asigna b
-    await expect(removeOwnPoolPerson(juan, b.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    // Y alguien que ya recibió entrada no se puede borrar (sale de la lista solo al darle la entrada).
+    await inviteFromPool(maria, { poolGroupId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
+    await expect(updatePoolPerson(admin, b.id, "delete")).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(getPoolBoard(null)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
   });
 

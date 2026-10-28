@@ -4,12 +4,9 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { PoolOutcome } from "@/server/invitations";
 import type { PoolGroup } from "@/server/pool-admin";
-import type { FormState } from "@/lib/form-state";
-import { ActionForm } from "./action-form";
 import { CopyButton } from "./copy-button";
 import { MustCopyModal } from "./must-copy-modal";
-import { SubmitButton } from "./submit-button";
-import { Alert, Badge, EmptyState, SendWarning, buttonClass, cx, dangerButtonClass, formatDateTime } from "./ui";
+import { Alert, Badge, EmptyState, SendWarning, buttonClass, cx, formatDateTime, inputClass } from "./ui";
 
 const entradas = (n: number) => `${n} ${n === 1 ? "entrada" : "entradas"}`;
 
@@ -22,12 +19,10 @@ export function PoolPickList({
   groups,
   remaining,
   pick,
-  remove,
 }: {
   groups: PoolGroup[];
   remaining: number;
   pick: (poolGroupId: string, idempotencyKey: string) => Promise<PoolOutcome>;
-  remove: (prev: FormState, form: FormData) => Promise<FormState>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -42,7 +37,14 @@ export function PoolPickList({
   const sizes = [...new Set(groups.map((g) => g.people.length))].sort((a, b) => a - b);
   // Si el tamaño elegido ya no existe (p. ej. se dio el último grupo de ese tamaño), se muestran todos.
   const activeSize = size !== null && sizes.includes(size) ? size : null;
-  const shown = groups.map((g, idx) => ({ g, pos: idx + 1 })).filter(({ g }) => activeSize === null || g.people.length === activeSize);
+  // Buscar a una persona: muestra el grupo donde está (con su mail resaltado).
+  const [q, setQ] = useState("");
+  const term = q.trim().toLowerCase();
+  const matches = (email: string) => term !== "" && email.toLowerCase().includes(term);
+  const shown = groups
+    .map((g, idx) => ({ g, pos: idx + 1 }))
+    .filter(({ g }) => activeSize === null || g.people.length === activeSize)
+    .filter(({ g }) => !term || g.people.some((p) => matches(p.email)));
 
   const give = (g: PoolGroup) => {
     const n = g.people.length;
@@ -121,6 +123,17 @@ export function PoolPickList({
         <EmptyState title="No hay nadie disponible en la lista">Podés sumar gente arriba.</EmptyState>
       ) : (
         <>
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar a una persona por su mail…"
+          aria-label="Buscar a una persona en la lista"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          className={inputClass}
+        />
         <div role="group" aria-label="Filtrar por tamaño de grupo" className="flex flex-wrap gap-2">
           <FilterChip active={activeSize === null} onClick={() => setSize(null)} label="Todos" count={groups.length} />
           {sizes.map((n) => (
@@ -133,6 +146,11 @@ export function PoolPickList({
             />
           ))}
         </div>
+        {shown.length === 0 ? (
+          <EmptyState title={term ? `Nadie con “${q.trim()}” en la lista` : "No hay grupos de ese tamaño"}>
+            {term ? "Puede que ya tenga entrada o que todavía no lo hayan sumado." : null}
+          </EmptyState>
+        ) : null}
         <ol className="space-y-3">
           {shown.map(({ g, pos }) => {
             const n = g.people.length;
@@ -149,13 +167,10 @@ export function PoolPickList({
                 <ul className="mt-2 divide-y divide-slate-100">
                   {g.people.map((p) => (
                     <li key={p.id} className="flex flex-wrap items-center gap-2 py-1.5">
-                      <span className="min-w-0 flex-1 select-all break-all font-semibold text-slate-900">{p.email}</span>
+                      <span className={cx("min-w-0 flex-1 select-all break-all font-semibold text-slate-900", matches(p.email) && "rounded bg-amber-100 px-1")}>
+                        {p.email}
+                      </span>
                       <CopyButton text={p.email} />
-                      {g.mine ? (
-                        <ActionForm action={remove} hidden={{ id: p.id }} confirm={`¿Quitar a ${p.email} de la lista?`}>
-                          <SubmitButton className={dangerButtonClass}>Quitar</SubmitButton>
-                        </ActionForm>
-                      ) : null}
                     </li>
                   ))}
                 </ul>

@@ -306,27 +306,6 @@ export async function getPoolBoard(actorIn: Actor | null): Promise<PoolBoard> {
   return { available: [...groups.values()], assigned: [...given.values()] };
 }
 
-/** Un egresado quita del pool a alguien que cargó él mismo y que todavía nadie invitó. */
-export async function removeOwnPoolPerson(actorIn: Actor | null, id: string): Promise<void> {
-  const actor = requireGraduateOrAdmin(actorIn);
-  if (actor.isAdmin) return updatePoolPerson(actor, id, "delete");
-  await withTransaction(async (c) => {
-    const { rows } = await c.query<{ email_normalized: string; status: string; added_by: string | null }>(
-      "SELECT email_normalized, status, added_by FROM app.pool_people WHERE id = $1 FOR UPDATE",
-      [id],
-    );
-    const p = rows[0];
-    if (!p) throw new AppError("NOT_FOUND", "La persona ya no está en el pool.");
-    if (p.added_by !== actor.id) throw new AppError("FORBIDDEN", "Solo podés quitar personas que cargaste vos.");
-    if (p.status !== "available") throw new AppError("CONFLICT", "Esa persona ya fue invitada: no se puede quitar.");
-    await c.query("DELETE FROM app.pool_people WHERE id = $1", [id]);
-    await audit(
-      { actorId: actor.id, actorEmail: actor.email, action: "pool_delete", result: "success", target: id, details: { email: p.email_normalized, by: "graduate" } },
-      c,
-    );
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Revisión previa de una lista antes de sumarla al pool (no modifica nada)
 // ---------------------------------------------------------------------------

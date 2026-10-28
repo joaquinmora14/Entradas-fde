@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { analyzeEmailText, type ExtractedEmail, type UnreadableEmail } from "@/lib/extract-emails";
 import type { PoolCheckItem, PoolCheckStatus, PoolImportReport } from "@/server/pool-admin";
+import { MAX_GROUP_SIZE } from "@/lib/groups";
 import { UnreadableBox } from "./unreadable-box";
 import { Alert, Badge, buttonClass, cx, inputClass, secondaryButtonClass } from "./ui";
 
@@ -32,7 +33,6 @@ export function PoolAddForm({
   const textRef = useRef<HTMLTextAreaElement>(null);
   const [extracted, setExtracted] = useState<ExtractedEmail[]>([]);
   const [checked, setChecked] = useState<PoolCheckItem[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [unreadable, setUnreadable] = useState<UnreadableEmail[]>([]);
   const [ignored, setIgnored] = useState(0);
   const [done, setDone] = useState<string | null>(null);
@@ -55,7 +55,6 @@ export function PoolAddForm({
       }
       setExtracted(emails);
       setChecked(res.items);
-      setSelected(new Set(res.items.filter((i) => i.status === "ok").map((i) => i.email)));
     });
   };
 
@@ -92,8 +91,10 @@ export function PoolAddForm({
     runCheck(extracted.map((e) => (e.email === from ? { email: to } : e)), unreadable);
   };
 
-  const toAdd = (checked ?? []).filter((i) => i.status === "ok" && selected.has(i.email));
+  // Las personas de un mismo mensaje van juntas: se agregan todas como un grupo.
+  const toAdd = (checked ?? []).filter((i) => i.status === "ok");
   const blocked = (checked ?? []).filter((i) => i.status !== "ok" && i.status !== "repeated");
+  const tooBig = toAdd.length > MAX_GROUP_SIZE;
 
   const onAdd = () => {
     setError("");
@@ -106,7 +107,7 @@ export function PoolAddForm({
       const r = res.report;
       const extra = r.duplicates.length + r.conflicts.length + r.invalid.length;
       setDone(
-        `Se ${r.added.length === 1 ? "agregó 1 persona" : `agregaron ${r.added.length} personas`} a la lista.` +
+        `Se ${r.added.length === 1 ? "agregó 1 persona" : `agregó un grupo de ${r.added.length} personas`} a la lista.` +
           (extra ? ` ${extra} no se agregaron porque cambiaron mientras revisabas (ya estaban o ya tienen entrada).` : ""),
       );
       setText("");
@@ -158,7 +159,8 @@ export function PoolAddForm({
       {checked ? (
         <div className="space-y-3 rounded-xl border border-slate-200 p-3">
           <p className="text-sm font-medium text-slate-700">
-            Encontramos {checked.length} {checked.length === 1 ? "mail" : "mails"}:
+            Encontramos {checked.length} {checked.length === 1 ? "mail" : "mails"}
+            {toAdd.length > 1 ? <> · <strong>van juntos: quedan como un grupo</strong></> : null}:
           </p>
           <ul className="divide-y divide-slate-100">
             {checked.map((i, idx) => {
@@ -166,26 +168,10 @@ export function PoolAddForm({
               const sug = suggestionFor(i.email);
               return (
                 <li key={`${i.email}-${idx}`} className="flex flex-wrap items-center gap-2 py-2">
-                  {i.status === "ok" ? (
-                    <input
-                      type="checkbox"
-                      aria-label={`Agregar ${i.email}`}
-                      className="h-5 w-5 accent-brand-600"
-                      checked={selected.has(i.email)}
-                      onChange={(e) => {
-                        const n = new Set(selected);
-                        if (e.target.checked) n.add(i.email);
-                        else n.delete(i.email);
-                        setSelected(n);
-                      }}
-                    />
-                  ) : (
-                    <span className="h-5 w-5" />
-                  )}
                   <span className="min-w-0 flex-1 break-all text-sm font-medium">{i.email}</span>
                   <Badge tone={s.tone}>{i.message ?? s.label}</Badge>
                   {sug ? (
-                    <div className="flex w-full flex-wrap items-center gap-2 pl-7 text-xs text-amber-800">
+                    <div className="flex w-full flex-wrap items-center gap-2 text-xs text-amber-800">
                       ¿Quisiste decir <strong className="break-all">{sug}</strong>?
                       <button type="button" className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 font-medium" onClick={() => applySuggestion(i.email, sug)}>
                         Corregir
@@ -207,37 +193,46 @@ export function PoolAddForm({
               </ul>
             </Alert>
           ) : null}
-          {toAdd.length ? (
+          {tooBig ? (
+            <Alert tone="error" title={`Un grupo puede tener hasta ${MAX_GROUP_SIZE} personas`}>
+              Esta lista tiene {toAdd.length}. Un grupo lo toma un solo egresado, que tiene {MAX_GROUP_SIZE} entradas. Si son más,
+              cargalos en dos partes.
+            </Alert>
+          ) : toAdd.length ? (
             <p className="text-sm text-slate-700">
               {blocked.length ? (
                 <>
-                  {toAdd.length === 1 ? "El otro está bien." : `Los otros ${toAdd.length} están bien.`} <strong>¿{toAdd.length === 1 ? "Lo agregamos" : "Los agregamos"}?</strong>
+                  {toAdd.length === 1 ? "El otro está bien." : `Los otros ${toAdd.length} están bien.`} <strong>¿{toAdd.length === 1 ? "Lo agregamos" : "Los agregamos como grupo"}?</strong>
                 </>
+              ) : toAdd.length === 1 ? (
+                <>Se va a agregar <strong>1 persona</strong> a la lista.</>
               ) : (
-                <>Se van a agregar <strong>{toAdd.length}</strong> a la lista.</>
+                <>Se van a agregar <strong>{toAdd.length}</strong> a la lista, juntos como un grupo.</>
               )}
             </p>
           ) : (
             <p className="text-sm text-slate-600">No hay mails nuevos para agregar en esta lista.</p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
-            {toAdd.length === 0 ? (
+            {toAdd.length === 0 || tooBig ? (
               <button type="button" onClick={resetAll} disabled={pending} className={buttonClass}>
                 Probar con otra lista
               </button>
             ) : (
-            <button type="button" onClick={onAdd} disabled={pending || toAdd.length === 0} className={buttonClass}>
-              {pending
-                ? "Agregando…"
-                : blocked.length && toAdd.length
-                  ? `Sí, agregar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length}`}`
-                  : `Agregar ${toAdd.length} a la lista`}
-            </button>
+              <button type="button" onClick={onAdd} disabled={pending} className={buttonClass}>
+                {pending
+                  ? "Agregando…"
+                  : blocked.length
+                    ? `Sí, agregar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length} como grupo`}`
+                    : toAdd.length === 1
+                      ? "Agregar a la lista"
+                      : `Agregar el grupo (${toAdd.length}) a la lista`}
+              </button>
             )}
             <button type="button" onClick={() => setChecked(null)} disabled={pending} className={secondaryButtonClass}>
               Editar la lista
             </button>
-            {toAdd.length > 0 ? (
+            {toAdd.length > 0 && !tooBig ? (
               <button type="button" onClick={resetAll} disabled={pending} className={secondaryButtonClass}>
                 Probar con otra lista
               </button>

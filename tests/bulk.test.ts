@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeEmailText, extractEmails } from "@/lib/extract-emails";
-import { checkGuestEmails, inviteMany } from "@/server/invitations";
+import { checkGuestEmails, getDashboard, inviteGroup } from "@/server/invitations";
 import { getGraduateActor } from "@/server/admin";
 import { listAuditLogs } from "@/server/admin";
 import { count, key, makeUser, quotaOf } from "./support/factory";
@@ -58,12 +58,12 @@ sin mail: Carla 39000111`;
   });
 });
 
-describe("Anotar varias entradas a la vez", () => {
+describe("Anotar un grupo (la lista pegada va junta)", () => {
   it("revisa la lista antes de anotar sin modificar nada", async () => {
     const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
     const maria = await makeUser({ email: "maria@example.com", name: "María" });
-    await inviteMany(maria, { items: [{ email: "tomada@example.com", idempotencyKey: key() }] }, { syncNow: false });
-    await inviteMany(juan, { items: [{ email: "mia@example.com", idempotencyKey: key() }] }, { syncNow: false });
+    await inviteGroup(maria, { emails: ["tomada@example.com"], idempotencyKey: key() }, { syncNow: false });
+    await inviteGroup(juan, { emails: ["mia@example.com"], idempotencyKey: key() }, { syncNow: false });
     const r = await checkGuestEmails(juan, [
       "nueva@example.com",
       "tomada@example.com",
@@ -82,46 +82,96 @@ describe("Anotar varias entradas a la vez", () => {
     expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(2);
   });
 
-  it("anota cada mail de forma independiente y reintentar el lote no duplica", async () => {
-    const juan = await makeUser({ email: "juan@example.com", quota: 3 });
-    const items = ["a@example.com", "b@example.com", "c@example.com", "d@example.com"].map((email) => ({ email, idempotencyKey: key() }));
-    const first = await inviteMany(juan, { items }, { syncNow: false });
-    expect(first.results.map((r) => r.outcome.kind)).toEqual(["created", "created", "created", "quota_exhausted"]);
-    expect(first.remaining).toBe(0);
-    // Reintento idéntico (p. ej. se cortó la conexión): mismo resultado, nada nuevo.
-    const again = await inviteMany(juan, { items }, { syncNow: false });
-    expect(again.results.map((r) => r.outcome.kind)).toEqual(["created", "created", "created", "quota_exhausted"]);
-    expect(await quotaOf(juan.id)).toEqual({ used: 3, initial_quota: 3 });
-    expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(3);
+  it("anota a todos juntos como un grupo, en el orden de la lista", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    const emails = ["zeta@example.com", "Alfa@Example.com", "medio@example.com"];
+    const r = await inviteGroup(juan, { emails, idempotencyKey: key() }, { syncNow: false });
+    expect(r).toMatchObject({ kind: "created", emails: ["zeta@example.com", "alfa@example.com", "medio@example.com"], remaining: 13 });
+    expect(await count("SELECT count(DISTINCT group_id) AS n FROM app.invitations")).toBe(1);
+    const d = await getDashboard(juan);
+    expect(d.groups).toHaveLength(1);
+    expect(d.groups[0].items.map((i) => i.email)).toEqual(["zeta@example.com", "alfa@example.com", "medio@example.com"]);
+    // Otro grupo después: aparece primero (los más recientes arriba).
+    await inviteGroup(juan, { emails: ["otro@example.com"], idempotencyKey: key() }, { syncNow: false });
+    expect((await getDashboard(juan)).groups.map((g) => g.items.length)).toEqual([1, 3]);
   });
 
-  it("el administrador puede anotar en nombre de un egresado usando su cupo y queda auditado", async () => {
+  it("si no alcanzan las entradas para todo el grupo, no se anota a nadie", async () => {
+    const juan = await makeUser({ email: "juan@example.com", quota: 3 });
+    const r = await inviteGroup(juan, { emails: ["a@example.com", "b@example.com", "c@example.com", "d@example.com"], idempotencyKey: key() }, { syncNow: false });
+    expect(r).toEqual({ kind: "quota_exhausted", needed: 4, remaining: 3 });
+    expect(await quotaOf(juan.id)).toEqual({ used: 0, initial_quota: 3 });
+    expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(0);
+  });
+
+  it("reintentar el mismo grupo (corte de red) no duplica ni descuenta de más", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    const k = key();
+    const input = { emails: ["a@example.com", "b@example.com"], idempotencyKey: k };
+    const [x, y] = await Promise.all([inviteGroup(juan, input, { syncNow: false }), inviteGroup(juan, input, { syncNow: false })]);
+    const z = await inviteGroup(juan, input, { syncNow: false });
+    expect([x.kind, y.kind, z.kind]).toEqual(["created", "created", "created"]);
+    if (x.kind === "created" && z.kind === "created") expect(z.groupId).toBe(x.groupId);
+    expect(await quotaOf(juan.id)).toEqual({ used: 2, initial_quota: 16 });
+    expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(2);
+  });
+
+  it("si mientras revisaba otro egresado anotó a uno del grupo, no se anota a nadie y se avisa cuál", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    const maria = await makeUser({ email: "maria@example.com" });
+    const emails = ["uno@example.com", "carrera@example.com", "dos@example.com"];
+    const pre = await checkGuestEmails(juan, emails);
+    expect(pre.items.every((i) => i.status === "ok")).toBe(true);
+    await inviteGroup(maria, { emails: ["Carrera@example.com"], idempotencyKey: key() }, { syncNow: false });
+    const r = await inviteGroup(juan, { emails, idempotencyKey: key() }, { syncNow: false });
+    expect(r).toEqual({ kind: "conflict", blocked: [{ email: "carrera@example.com", reason: "taken" }] });
+    expect(await quotaOf(juan.id)).toEqual({ used: 0, initial_quota: 16 });
+    // Al revisar de nuevo, ese queda afuera y los otros dos se anotan juntos.
+    const again = await checkGuestEmails(juan, emails);
+    const ok = again.items.filter((i) => i.status === "ok").map((i) => i.email);
+    expect(ok).toEqual(["uno@example.com", "dos@example.com"]);
+    expect(await inviteGroup(juan, { emails: ok, idempotencyKey: key() }, { syncNow: false })).toMatchObject({ kind: "created", emails: ok });
+  });
+
+  it("dos egresados anotando grupos que se pisan al mismo tiempo: no hay duplicados ni bloqueos", async () => {
+    const users = await Promise.all(Array.from({ length: 5 }, (_, i) => makeUser({ email: `e${i}@example.com` })));
+    const pool = Array.from({ length: 8 }, (_, i) => `p${i}@example.com`);
+    const results = await Promise.all(
+      users.map((u, i) => inviteGroup(u, { emails: [pool[i], pool[i + 1], pool[i + 3]].reverse(), idempotencyKey: key() }, { syncNow: false })),
+    );
+    expect(results.every((r) => r.kind === "created" || r.kind === "conflict")).toBe(true);
+    // Cada mail tiene a lo sumo una invitación y cada grupo se anotó entero o nada.
+    expect(await count("SELECT count(*) AS n FROM (SELECT guest_email_normalized FROM app.invitations GROUP BY 1 HAVING count(*) > 1) x")).toBe(0);
+    const created = results.filter((r) => r.kind === "created").length;
+    expect(created).toBeGreaterThan(0);
+    expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(created * 3);
+    expect(await count("SELECT sum(used) AS n FROM app.invitation_quotas")).toBe(created * 3);
+  });
+
+  it("rechaza mails inválidos, egresados o a uno mismo sin anotar a nadie", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    await makeUser({ email: "maria@example.com" });
+    for (const bad of [["ok@example.com", "no-es-mail"], ["ok@example.com", "maria@example.com"], ["ok@example.com", "juan@example.com"]]) {
+      expect((await inviteGroup(juan, { emails: bad, idempotencyKey: key() }, { syncNow: false })).kind).toBe("validation");
+    }
+    expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(0);
+    // El mismo mail dos veces es la misma persona: se anota una vez.
+    expect(await inviteGroup(juan, { emails: ["x@example.com", "X@example.com"], idempotencyKey: key() }, { syncNow: false })).toMatchObject({
+      kind: "created",
+      emails: ["x@example.com"],
+    });
+  });
+
+  it("el administrador puede anotar un grupo en nombre de un egresado usando su cupo y queda auditado", async () => {
     const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const juan = await makeUser({ email: "juan@example.com", name: "Juan", status: "pending" });
     const grad = await getGraduateActor(admin, juan.id);
-    const r = await inviteMany(grad, { items: [{ email: "x@example.com", idempotencyKey: key() }] }, { syncNow: false, performedBy: admin });
-    expect(r.results[0].outcome.kind).toBe("created");
-    expect(await quotaOf(juan.id)).toEqual({ used: 1, initial_quota: 16 });
+    const r = await inviteGroup(grad, { emails: ["x@example.com", "y@example.com"], idempotencyKey: key() }, { syncNow: false, performedBy: admin });
+    expect(r.kind).toBe("created");
+    expect(await quotaOf(juan.id)).toEqual({ used: 2, initial_quota: 16 });
     const logs = await listAuditLogs(admin, { action: "invite" });
-    expect(logs[0]).toMatchObject({ actorEmail: "admin@example.com", details: { onBehalfOf: "juan@example.com", by: "admin" } });
+    expect(logs[0]).toMatchObject({ actorEmail: "admin@example.com", details: { onBehalfOf: "juan@example.com", by: "admin", size: 2 } });
     // Un egresado común no puede usar la función de administrador.
     await expect(getGraduateActor(juan, juan.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
-  });
-
-  it("si uno de la lista ya tiene entrada, los demás se anotan igual y ese se informa", async () => {
-    const juan = await makeUser({ email: "juan@example.com" });
-    const maria = await makeUser({ email: "maria@example.com" });
-    const items = ["uno@example.com", "carrera@example.com", "dos@example.com"].map((email) => ({ email, idempotencyKey: key() }));
-    // Juan revisó la lista (todos "ok") y, antes de confirmar, María anota uno.
-    const pre = await checkGuestEmails(juan, items.map((i) => i.email));
-    expect(pre.items.every((i) => i.status === "ok")).toBe(true);
-    await inviteMany(maria, { items: [{ email: "carrera@example.com", idempotencyKey: key() }] }, { syncNow: false });
-    const r = await inviteMany(juan, { items }, { syncNow: false });
-    expect(r.results.map((x) => [x.email, x.outcome.kind])).toEqual([
-      ["uno@example.com", "created"],
-      ["carrera@example.com", "duplicate"],
-      ["dos@example.com", "created"],
-    ]);
-    expect(await quotaOf(juan.id)).toEqual({ used: 2, initial_quota: 16 });
   });
 });

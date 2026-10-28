@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeEmailText } from "@/lib/extract-emails";
 import { parseEmail } from "@/server/email";
-import { checkGuestEmails, inviteFromPool, inviteMany, listMyInvitations } from "@/server/invitations";
+import { checkGuestEmails, inviteFromPool, inviteGroup, listMyInvitations } from "@/server/invitations";
 import { listInvitations } from "@/server/admin";
 import { checkPoolEmails, getPoolBoard, importPool } from "@/server/pool-admin";
 import { MemorySheetsClient } from "@/server/sheets/memory";
@@ -164,10 +164,10 @@ describe("Fidelidad de punta a punta (base de datos, paneles, planilla y pool)",
       const check = await checkGuestEmails(grad, extracted);
       const okEmails = check.items.filter((c) => c.status === "ok").map((c) => c.email);
       for (const c of check.items) expect(extracted).toContain(c.email);
-      const res = await inviteMany(grad, { items: okEmails.map((email) => ({ email, idempotencyKey: key() })) });
-      for (const r of res.results) {
-        expect(r.outcome.kind).toBe("created");
-        if (r.outcome.kind === "created") expect(r.outcome.email).toBe(r.email);
+      if (okEmails.length) {
+        const res = await inviteGroup(grad, { emails: okEmails, idempotencyKey: key() });
+        expect(res.kind).toBe("created");
+        if (res.kind === "created") expect(res.emails).toEqual(okEmails);
       }
       all.push(...okEmails);
     }
@@ -202,15 +202,15 @@ describe("Fidelidad de punta a punta (base de datos, paneles, planilla y pool)",
     }
     expect(loaded.length).toBeGreaterThan(60);
     const board = await getPoolBoard(picker);
-    expect(board.available.map((p) => p.email)).toEqual(loaded); // mismo orden de carga y mismos caracteres
-    // Elegir a cada persona de la lista.
+    expect(board.available.flatMap((g) => g.people.map((p) => p.email))).toEqual(loaded); // mismo orden de carga y mismos caracteres
+    // Darle entrada a cada grupo de la lista.
     const picked: string[] = [];
-    for (const p of board.available) {
-      const r = await inviteFromPool(picker, { poolPersonId: p.id, idempotencyKey: key() }, { syncNow: false });
+    for (const g of board.available) {
+      const r = await inviteFromPool(picker, { poolGroupId: g.id, idempotencyKey: key() }, { syncNow: false });
       expect(r.kind).toBe("created");
       if (r.kind === "created") {
-        expect(r.email).toBe(p.email);
-        picked.push(r.email);
+        expect(r.emails).toEqual(g.people.map((p) => p.email));
+        picked.push(...r.emails);
       }
     }
     expect(picked).toEqual(loaded);

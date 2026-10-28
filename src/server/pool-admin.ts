@@ -4,6 +4,7 @@ import { getDb, pgRaisedCode, withTransaction } from "./db";
 import { MAX_IMPORT_ROWS } from "./csv";
 import { parseEmail } from "./email";
 import { analyzeEmailText } from "@/lib/extract-emails";
+import { MAX_GROUP_SIZE } from "@/lib/groups";
 import { AppError } from "./errors";
 
 export interface PoolImportReport {
@@ -24,8 +25,15 @@ const STATUS_LABEL: Record<string, string> = {
 /**
  * Agrega personas al pool común desde texto libre o CSV (se toman solo los mails).
  * Lo pueden usar el administrador y cualquier egresado.
+ * Las personas de una misma carga (un mensaje) forman UN grupo que va junto. Con
+ * grouping "each" (archivo CSV del administrador) cada persona queda como su propio grupo.
  */
-export async function importPool(actorIn: Actor | null, text: string): Promise<PoolImportReport> {
+export async function importPool(
+  actorIn: Actor | null,
+  text: string,
+  opts: { grouping?: "together" | "each" } = {},
+): Promise<PoolImportReport> {
+  const together = (opts.grouping ?? "together") === "together";
   const actor = requireGraduateOrAdmin(actorIn);
   const limit = actor.isAdmin ? MAX_IMPORT_ROWS : 100;
   const source = text ?? "";
@@ -62,8 +70,10 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
 
   if (candidates.length) {
     await withTransaction(async (c) => {
+      // Bloqueos siempre en el mismo orden (alfabético) para no trabarse con otras operaciones.
+      for (const email of candidates.map((p) => p.normalized).sort()) await c.query("SELECT app.lock_email($1)", [email]);
+      const groupId = (await c.query<{ id: string }>("SELECT gen_random_uuid() AS id")).rows[0].id;
       for (const p of candidates) {
-        await c.query("SELECT app.lock_email($1)", [p.normalized]);
         const inPool = await c.query<{ status: string }>(
           "SELECT status FROM app.pool_people WHERE email_normalized = $1",
           [p.normalized],
@@ -94,10 +104,16 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
           continue;
         }
         await c.query(
-          "INSERT INTO app.pool_people (email, email_normalized, added_by) VALUES ($1, $2, $3)",
-          [p.original, p.normalized, actor.id],
+          "INSERT INTO app.pool_people (email, email_normalized, added_by, group_id) VALUES ($1, $2, $3, COALESCE($4, gen_random_uuid()))",
+          [p.original, p.normalized, actor.id, together ? groupId : null],
         );
         report.added.push(p.original);
+      }
+      if (together && report.added.length > MAX_GROUP_SIZE) {
+        throw new AppError(
+          "VALIDATION",
+          `Un grupo puede tener hasta ${MAX_GROUP_SIZE} personas (lo máximo que puede dar un egresado). Si son más, cargalos en dos partes.`,
+        );
       }
       await audit(
         {
@@ -111,6 +127,7 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
             invalid: report.invalid.length,
             conflicts: report.conflicts.length,
             addedEmails: report.added.slice(0, 500),
+            grouping: together ? "together" : "each",
             invalidSamples: report.invalid.slice(0, 30).map((i) => i.value),
             ignoredLines: report.ignoredLines ?? 0,
           },
@@ -139,6 +156,7 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
 
 export interface PoolPersonRow {
   id: string;
+  groupId: string;
   email: string;
   status: "available" | "assigned" | "retired";
   addedAt: string;
@@ -150,18 +168,18 @@ export interface PoolPersonRow {
 export async function listPool(actorIn: Actor | null, status?: string): Promise<PoolPersonRow[]> {
   requireAdmin(actorIn);
   const { rows } = await getDb().query(
-    `SELECT p.id, p.email, p.status, p.added_at, p.assigned_at, p.retired_reason,
+    `SELECT p.id, p.group_id, p.email, p.status, p.added_at, p.assigned_at, p.retired_reason,
             COALESCE(NULLIF(u.display_name, ''), u.email) AS assigned_to
        FROM app.pool_people p
        LEFT JOIN app.users u ON u.id = p.assigned_to
       WHERE ($1::text IS NULL OR p.status = $1)
-      ORDER BY CASE p.status WHEN 'available' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,
-               COALESCE(p.assigned_at, p.added_at) DESC
+      ORDER BY min(p.seq) OVER (PARTITION BY p.group_id), p.group_id, p.seq
       LIMIT 3000`,
     [status && ["available", "assigned", "retired"].includes(status) ? status : null],
   );
   return rows.map((r) => ({
     id: r.id,
+    groupId: r.group_id,
     email: r.email,
     status: r.status,
     addedAt: r.added_at.toISOString(),
@@ -231,9 +249,20 @@ export async function updatePoolPerson(
 // ---------------------------------------------------------------------------
 // Vista del pool para los egresados (no es pública: requiere sesión)
 // ---------------------------------------------------------------------------
+export interface PoolGroup {
+  /** Id del grupo: se usa para darles entrada a todos juntos. */
+  id: string;
+  addedBy: string | null;
+  mine: boolean;
+  addedAt: string;
+  people: Array<{ id: string; email: string }>;
+}
+
 export interface PoolBoard {
-  available: Array<{ id: string; email: string; addedBy: string | null; mine: boolean; addedAt: string }>;
-  assigned: Array<{ email: string; invitedBy: string; assignedAt: string }>;
+  /** Grupos con gente disponible, los más antiguos primero. */
+  available: PoolGroup[];
+  /** Grupos que ya recibieron entrada desde la lista (los más recientes primero). */
+  assigned: Array<{ id: string; emails: string[]; invitedBy: string; assignedAt: string }>;
 }
 
 export async function getPoolBoard(actorIn: Actor | null): Promise<PoolBoard> {
@@ -241,30 +270,40 @@ export async function getPoolBoard(actorIn: Actor | null): Promise<PoolBoard> {
   const db = getDb();
   const [avail, assigned] = await Promise.all([
     db.query(
-      `SELECT p.id, p.email, p.added_at, p.added_by,
+      `SELECT p.id, p.group_id, p.email, p.added_at, p.added_by,
               COALESCE(NULLIF(u.display_name, ''), CASE WHEN u.is_admin AND NOT u.is_graduate THEN 'Organización' END) AS added_by_name
          FROM app.pool_people p LEFT JOIN app.users u ON u.id = p.added_by
         WHERE p.status = 'available'
-        ORDER BY p.seq`,
+        ORDER BY min(p.seq) OVER (PARTITION BY p.group_id), p.group_id, p.seq`,
     ),
     db.query(
-      `SELECT p.email, p.assigned_at, COALESCE(NULLIF(u.display_name, ''), 'Egresado') AS invited_by
+      `SELECT p.group_id, p.assigned_to, p.email, p.assigned_at, COALESCE(NULLIF(u.display_name, ''), 'Egresado') AS invited_by
          FROM app.pool_people p JOIN app.users u ON u.id = p.assigned_to
         WHERE p.status = 'assigned'
-        ORDER BY p.assigned_at DESC
-        LIMIT 500`,
+        ORDER BY max(p.assigned_at) OVER (PARTITION BY p.group_id, p.assigned_to) DESC, p.group_id, p.assigned_to, p.seq
+        LIMIT 1000`,
     ),
   ]);
-  return {
-    available: avail.rows.map((r) => ({
-      id: r.id,
-      email: r.email,
-      addedBy: r.added_by_name,
-      mine: r.added_by === actor.id,
-      addedAt: r.added_at.toISOString(),
-    })),
-    assigned: assigned.rows.map((r) => ({ email: r.email, invitedBy: r.invited_by, assignedAt: r.assigned_at.toISOString() })),
-  };
+  const groups = new Map<string, PoolGroup>();
+  for (const r of avail.rows) {
+    let g = groups.get(r.group_id);
+    if (!g) {
+      g = { id: r.group_id, addedBy: r.added_by_name, mine: r.added_by === actor.id, addedAt: r.added_at.toISOString(), people: [] };
+      groups.set(r.group_id, g);
+    }
+    g.people.push({ id: r.id, email: r.email });
+  }
+  const given = new Map<string, PoolBoard["assigned"][number]>();
+  for (const r of assigned.rows) {
+    const k = `${r.group_id}:${r.assigned_to}`;
+    let g = given.get(k);
+    if (!g) {
+      g = { id: k, emails: [], invitedBy: r.invited_by, assignedAt: r.assigned_at.toISOString() };
+      given.set(k, g);
+    }
+    g.emails.push(r.email);
+  }
+  return { available: [...groups.values()], assigned: [...given.values()] };
 }
 
 /** Un egresado quita del pool a alguien que cargó él mismo y que todavía nadie invitó. */

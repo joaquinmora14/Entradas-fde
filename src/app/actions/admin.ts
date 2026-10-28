@@ -13,7 +13,7 @@ import {
   updateRegistrationCode,
 } from "@/server/admin";
 import { requireAdmin } from "@/server/actor";
-import { checkGuestEmails, inviteMany } from "@/server/invitations";
+import { checkGuestEmails, inviteGroup, type GroupOutcome } from "@/server/invitations";
 import { publicMessage } from "@/server/errors";
 import { importPool, updatePoolPerson } from "@/server/pool-admin";
 import { diagnoseSheet, makeAllPendingDue, reconcileSheet, runSheetSync } from "@/server/sheets/sync";
@@ -101,7 +101,8 @@ export async function correctInvitationAction(_p: FormState, form: FormData): Pr
 
 export async function importPoolAction(_p: FormState, form: FormData): Promise<FormState> {
   try {
-    const r = await importPool(await getCurrentActor(), await readText(form));
+    // En un archivo CSV cada persona queda como su propio grupo.
+    const r = await importPool(await getCurrentActor(), await readText(form), { grouping: "each" });
     revalidatePath("/admin", "layout");
     return {
       ok: true,
@@ -183,15 +184,15 @@ export async function adminCheckEmailsAction(graduateId: string, emails: string[
   }
 }
 
-/** El administrador anota entradas en nombre de un egresado (usa el cupo del egresado; queda auditado). */
-export async function adminInviteManyAction(graduateId: string, items: Array<{ email: string; idempotencyKey: string }>) {
+/** El administrador anota un grupo en nombre de un egresado (usa el cupo del egresado; queda auditado). */
+export async function adminInviteGroupAction(graduateId: string, emails: string[], idempotencyKey: string): Promise<GroupOutcome> {
   try {
     const admin = requireAdmin(await getCurrentActor());
     const grad = await getGraduateActor(admin, graduateId);
-    const result = await inviteMany(grad, { items, ip: await clientIp() }, { performedBy: admin });
+    const result = await inviteGroup(grad, { emails, idempotencyKey, ip: await clientIp() }, { performedBy: admin });
     revalidatePath("/admin", "layout");
     return result;
   } catch (err) {
-    return { error: publicMessage(err) } as const;
+    return { kind: "validation", message: publicMessage(err) };
   }
 }

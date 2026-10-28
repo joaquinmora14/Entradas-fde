@@ -554,9 +554,9 @@ export async function getGraduateDetail(adminIn: Actor | null, userId: string) {
   const user = users.find((u) => u.id === userId && u.isGraduate);
   if (!user) throw new AppError("NOT_FOUND", "El egresado no existe.");
   const { rows } = await getDb().query(
-    `SELECT id, guest_email, source, status, created_at, sync_status, cancel_reason
+    `SELECT id, group_id, guest_email, source, status, created_at, sync_status, cancel_reason
        FROM app.invitations WHERE inviter_id = $1
-      ORDER BY status, created_at DESC`,
+      ORDER BY status, created_at DESC, id`,
     [userId],
   );
   return {
@@ -564,6 +564,7 @@ export async function getGraduateDetail(adminIn: Actor | null, userId: string) {
     remaining: user.initialQuota - user.used,
     invitations: rows.map((r) => ({
       id: r.id as string,
+      groupId: r.group_id as string,
       email: r.guest_email as string,
       source: r.source as "direct" | "pool",
       status: r.status as "active" | "cancelled",

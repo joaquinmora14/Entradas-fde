@@ -15,8 +15,9 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 | Concepto | Regla |
 |---|---|
 | Identidad de un invitado | Su **email normalizado** (minúsculas, sin espacios; en Gmail se ignoran puntos y `+sufijo`). Único en toda la app. |
-| Cupo individual | 16 entradas por egresado. Una invitación directa descuenta exactamente 1. |
-| Pool “Fuera de lista” | Lista común que pueden ver y ampliar todos los egresados (y el admin), ordenada por antigüedad (los primeros cargados arriba). Cada egresado **elige a quién darle** una de sus entradas: dar una entrada desde la lista **descuenta 1 de sus 16**. Si dos eligen a la misma persona a la vez, solo uno se la queda. |
+| Cupo individual | 16 entradas por egresado. Cada persona anotada descuenta exactamente 1. |
+| Grupos | La gente pide entradas en grupo (un mensaje con varias personas que van juntas). Todos los mails de un mismo mensaje forman **un grupo**: se anotan **todos juntos o ninguno** (si no alcanzan las entradas o si a alguno lo anotó otro egresado mientras se revisaba, no se anota a nadie). Los mails que ya tienen entrada, inválidos o de egresados se avisan y quedan afuera. |
+| Pool “Fuera de lista” | Lista común que pueden ver y ampliar todos los egresados (y el admin), **por grupos** y ordenada por antigüedad (los primeros cargados arriba). Cada egresado **elige un grupo** y les da una entrada a todos sus integrantes (descuenta 1 por persona de sus 16), o a ninguno. Un grupo puede tener hasta 16 personas. Si dos eligen el mismo grupo a la vez, solo uno se lo queda entero. |
 | Fuente de verdad | PostgreSQL. Google Sheets es una copia operativa que se sincroniza sola. |
 | Planilla | Hoja **Invitados** con exactamente dos columnas: `Invitado` (email) e `Invitado por` (nombre del egresado). Una fila por invitado. |
 
@@ -28,8 +29,10 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 - **Cupo atómico:** un trigger descuenta la entrada en la **misma transacción** que crea la invitación y una restricción
   `CHECK (used <= initial_quota)` impide superar el cupo, incluso con solicitudes simultáneas. Si algo falla, no se
   descuenta nada.
-- **Pool atómico:** la persona elegida se bloquea con `SELECT … FOR UPDATE` y se marca asignada en la misma
-  transacción que crea la invitación. Si la transacción falla, sigue disponible. Una persona asignada nunca vuelve a
+- **Grupos atómicos:** un grupo se anota en una sola transacción (todas las invitaciones comparten `group_id`); los
+  mails se bloquean siempre en el mismo orden para que dos grupos simultáneos no se traben.
+- **Pool atómico:** las personas del grupo elegido se bloquean con `SELECT … FOR UPDATE` y se marcan asignadas en la misma
+  transacción que crea las invitaciones. Si la transacción falla, sigue disponible. Una persona asignada nunca vuelve a
   estar disponible (trigger) y no puede reimportarse (email único en el pool).
 - **Idempotencia:** cada envío de formulario lleva una clave única. Reintentar (doble toque, corte de red) devuelve
   el mismo resultado sin crear otra invitación ni asignar otra persona.
@@ -51,13 +54,14 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 
 ### Egresados
 1. Entrar a https://entradas-fde.vercel.app/registro con el email que figura en la lista autorizada y crear la contraseña.
-2. En **Mis entradas**: pegar un mail o la lista completa que les mandaron (nombre, mail, DNI… en cualquier formato) →
+2. En **Mis entradas**: pegar el mensaje que les mandaron (nombre, mail, DNI… en cualquier formato), un grupo por vez →
    **Revisar mails**. La app extrae solo los mails, avisa cuáles ya tienen entrada, cuáles están repetidos y sugiere
-   correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar N entradas**.
-3. En **Fuera de lista**: ver la lista común, **sumar gente** pegando la lista tal como llegó (se toman solo los mails;
-   no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno mismo cargó mientras nadie lo haya
-   invitado, y **Darle mi entrada** a la persona que elija (usa 1 de sus 16 entradas). El mail queda a la vista con un botón
-   **Copiar** para mandárselo.
+   correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar el grupo**: se anotan todos juntos. En “Mails que
+   anotaste” se ven agrupados, con **Copiar todos los mails**.
+3. En **Fuera de lista**: ver la lista común por grupos, **sumar gente** pegando el mensaje tal como llegó (las personas de
+   un mismo mensaje quedan como un grupo; no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno
+   mismo cargó mientras nadie lo haya invitado, y **Darles mis entradas** al grupo que elija (una por persona). Después
+   aparece una ventana que no se puede cerrar hasta tocar **Copiar los mails**.
 
 **La app no envía nada a los invitados.** En cada paso (antes de pegar, al confirmar y después de anotar) se muestra un
 aviso grande: quien anota un mail tiene que mandarle la invitación a esa persona. Después de anotar se listan los mails
@@ -74,8 +78,8 @@ invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes
   corregir cada uno, y **anotar entradas en su nombre** (usa su cupo y queda auditado como hecho por el admin).
 - **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**
   (mantiene el cupo).
-- **Pool:** agregar emails uno por uno o por CSV (informa agregados, duplicados, inválidos y rechazados por estar ya
-  invitados), desactivar, reactivar o eliminar personas disponibles.
+- **Pool:** ver los grupos, agregar pegando un mensaje (queda como un grupo) o por CSV (cada persona queda sola; informa
+  agregados, duplicados, inválidos y rechazados por estar ya invitados), desactivar, reactivar o eliminar personas disponibles.
 - **Planilla:** estado, tareas pendientes y errores, sincronización manual, comparación y reconciliación.
 - **Auditoría:** registro de logins, registros, invitaciones, importaciones y correcciones.
 - **Ajustes:** código de registro opcional (además de la lista autorizada).

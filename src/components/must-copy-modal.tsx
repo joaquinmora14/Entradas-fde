@@ -3,14 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Ventana obligatoria: tapa toda la pantalla y no se puede cerrar hasta copiar el mail.
- * No se cierra tocando afuera ni con Escape: el único camino es "Copiar mail" y después
- * "Listo, ya lo copié".
+ * Ventana obligatoria: tapa toda la pantalla y no se puede cerrar hasta copiar los mails.
+ * No se cierra tocando afuera ni con Escape: el único camino es "Copiar" y después
+ * "Listo, ya los copié". Con un grupo se copian todos los mails juntos, separados por coma
+ * (se pegan así en el "Para" de un mail).
  */
-export function MustCopyModal({ email, onDone }: { email: string; onDone: () => void }) {
+export function MustCopyModal({ emails, onDone }: { emails: string[]; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
   const [manual, setManual] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const many = emails.length > 1;
+  const text = emails.join(", ");
   const copyRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -33,7 +36,7 @@ export function MustCopyModal({ email, onDone }: { email: string; onDone: () => 
   const copy = async () => {
     let ok = false;
     try {
-      await navigator.clipboard.writeText(email);
+      await navigator.clipboard.writeText(text);
       ok = true;
     } catch {
       // Navegadores sin permiso de portapapeles: se selecciona el texto y se usa el método clásico.
@@ -41,7 +44,7 @@ export function MustCopyModal({ email, onDone }: { email: string; onDone: () => 
       if (input) {
         input.focus();
         input.select();
-        input.setSelectionRange(0, email.length);
+        input.setSelectionRange(0, input.value.length);
         try {
           ok = document.execCommand("copy");
         } catch {
@@ -62,18 +65,21 @@ export function MustCopyModal({ email, onDone }: { email: string; onDone: () => 
     >
       <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
         <p id="must-copy-title" className="text-xl font-extrabold text-slate-900">
-          ⚠️ Copiá el mail para mandarle la invitación
+          {many ? `⚠️ Copiá los ${emails.length} mails para mandarles la invitación` : "⚠️ Copiá el mail para mandarle la invitación"}
         </p>
         <p className="mt-1 text-sm font-semibold text-amber-800">
-          La app NO le manda nada a esta persona: se la tenés que mandar VOS a este mail.
+          {many
+            ? "La app NO les manda nada: se la tenés que mandar VOS a cada uno de estos mails."
+            : "La app NO le manda nada a esta persona: se la tenés que mandar VOS a este mail."}
         </p>
-        <input
+        <textarea
           ref={inputRef}
           readOnly
-          value={email}
-          aria-label="Mail de la persona"
+          value={many ? emails.join(",\n") : text}
+          rows={Math.min(emails.length, 8)}
+          aria-label={many ? "Mails del grupo" : "Mail de la persona"}
           onFocus={(e) => e.currentTarget.select()}
-          className="mt-4 block w-full break-all rounded-xl border-2 border-slate-300 bg-slate-50 px-3 py-3 text-center text-lg font-bold text-slate-900"
+          className="mt-4 block w-full resize-none break-all rounded-xl border-2 border-slate-300 bg-slate-50 px-3 py-3 text-center text-lg font-bold leading-snug text-slate-900"
         />
         <button
           ref={copyRef}
@@ -83,7 +89,13 @@ export function MustCopyModal({ email, onDone }: { email: string; onDone: () => 
             copied ? "bg-emerald-600 hover:bg-emerald-700" : "bg-brand-600 hover:bg-brand-700"
           }`}
         >
-          {copied ? (manual ? "Seleccionado: mantené apretado para copiar" : "¡Copiado! ✓") : "Copiar mail"}
+          {copied
+            ? manual
+              ? "Seleccionado: mantené apretado para copiar"
+              : "¡Copiado! ✓"
+            : many
+              ? `Copiar los ${emails.length} mails`
+              : "Copiar mail"}
         </button>
         <button
           type="button"
@@ -91,9 +103,11 @@ export function MustCopyModal({ email, onDone }: { email: string; onDone: () => 
           disabled={!copied}
           className="mt-2 w-full rounded-xl border-2 border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Listo, ya lo copié
+          {many ? "Listo, ya los copié" : "Listo, ya lo copié"}
         </button>
-        {!copied ? <p className="mt-2 text-center text-xs text-slate-500">Primero tocá “Copiar mail”.</p> : null}
+        {!copied ? (
+          <p className="mt-2 text-center text-xs text-slate-500">Primero tocá “{many ? `Copiar los ${emails.length} mails` : "Copiar mail"}”.</p>
+        ) : null}
       </div>
     </div>
   );

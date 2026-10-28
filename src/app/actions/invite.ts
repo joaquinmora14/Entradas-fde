@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import {
   checkGuestEmails,
   inviteFromPool,
-  inviteMany,
+  inviteGroup,
+  type GroupOutcome,
   type PoolOutcome,
 } from "@/server/invitations";
 import { publicMessage } from "@/server/errors";
@@ -12,10 +13,11 @@ import { checkPoolEmails, importPool, removeOwnPoolPerson } from "@/server/pool-
 import type { FormState } from "@/lib/form-state";
 import { clientIp, getCurrentActor } from "@/lib/session";
 
-export async function poolInviteAction(poolPersonId: string, idempotencyKey: string): Promise<PoolOutcome> {
+/** Da una entrada a cada persona de un grupo de "fuera de lista" (todos juntos o ninguno). */
+export async function poolInviteAction(poolGroupId: string, idempotencyKey: string): Promise<PoolOutcome> {
   const actor = await getCurrentActor();
   if (!actor) return { kind: "validation", message: "Tu sesión venció. Volvé a iniciar sesión." };
-  const result = await inviteFromPool(actor, { poolPersonId, idempotencyKey, ip: await clientIp() });
+  const result = await inviteFromPool(actor, { poolGroupId, idempotencyKey, ip: await clientIp() });
   revalidatePath("/pool");
   revalidatePath("/panel");
   return result;
@@ -31,16 +33,14 @@ export async function checkEmailsAction(emails: string[]) {
   }
 }
 
-export async function inviteManyAction(items: Array<{ email: string; idempotencyKey: string }>) {
+/** Anota un grupo (la lista pegada): todos juntos o ninguno. */
+export async function inviteGroupAction(emails: string[], idempotencyKey: string): Promise<GroupOutcome> {
   const actor = await getCurrentActor();
-  if (!actor) return { error: "Tu sesión venció. Volvé a iniciar sesión." } as const;
-  try {
-    const result = await inviteMany(actor, { items, ip: await clientIp() });
-    revalidatePath("/panel");
-    return result;
-  } catch (err) {
-    return { error: publicMessage(err) } as const;
-  }
+  if (!actor) return { kind: "validation", message: "Tu sesión venció. Volvé a iniciar sesión." };
+  const result = await inviteGroup(actor, { emails, idempotencyKey, ip: await clientIp() });
+  revalidatePath("/panel");
+  revalidatePath("/pool");
+  return result;
 }
 
 export async function removeFromPoolAction(_prev: FormState, form: FormData): Promise<FormState> {

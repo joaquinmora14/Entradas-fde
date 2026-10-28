@@ -81,6 +81,7 @@ export function PoolAddForm({
   };
 
   const toAdd = (checked ?? []).filter((i) => i.status === "ok" && selected.has(i.email));
+  const blocked = (checked ?? []).filter((i) => i.status !== "ok" && i.status !== "repeated");
 
   const onAdd = () => {
     setError("");
@@ -175,9 +176,37 @@ export function PoolAddForm({
               );
             })}
           </ul>
+          {blocked.length ? (
+            <Alert tone="warning" title={blocked.length === 1 ? "1 mail no se puede agregar:" : `${blocked.length} mails no se pueden agregar:`}>
+              <ul className="mt-1 space-y-0.5">
+                {blocked.map((b, idx) => (
+                  <li key={`${b.email}-${idx}`} className="break-words">
+                    <strong className="break-all">{b.email}</strong>: {b.message ?? STATUS[b.status].label.toLowerCase()}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          ) : null}
+          {toAdd.length ? (
+            <p className="text-sm text-slate-700">
+              {blocked.length ? (
+                <>
+                  {toAdd.length === 1 ? "El otro está bien." : `Los otros ${toAdd.length} están bien.`} <strong>¿{toAdd.length === 1 ? "Lo agregamos" : "Los agregamos"}?</strong>
+                </>
+              ) : (
+                <>Se van a agregar <strong>{toAdd.length}</strong> a la lista.</>
+              )}
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">No hay mails nuevos para agregar en esta lista.</p>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <button type="button" onClick={onAdd} disabled={pending || toAdd.length === 0} className={buttonClass}>
-              {pending ? "Agregando…" : `Agregar ${toAdd.length} a la lista`}
+              {pending
+                ? "Agregando…"
+                : blocked.length && toAdd.length
+                  ? `Sí, agregar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length}`}`
+                  : `Agregar ${toAdd.length} a la lista`}
             </button>
             <button type="button" onClick={() => setChecked(null)} disabled={pending} className={secondaryButtonClass}>
               Editar la lista

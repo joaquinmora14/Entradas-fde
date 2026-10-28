@@ -20,6 +20,16 @@ const STATUS: Record<CheckStatus, { label: string; tone: "green" | "amber" | "re
   self: { label: "Sos vos", tone: "slate" },
 };
 
+const BLOCKED_REASON: Record<CheckStatus, string> = {
+  ok: "",
+  repeated: "",
+  invalid: "no es un mail válido",
+  mine: "ya lo habías anotado vos",
+  taken: "ya tiene entrada de otro egresado",
+  graduate: "es egresado, ya tiene su lugar",
+  self: "sos vos",
+};
+
 function outcomeText(r: BatchItemResult): { text: string; tone: "green" | "amber" | "red" } {
   const o = r.outcome;
   switch (o.kind) {
@@ -123,6 +133,8 @@ export function BulkInviteForm({
   };
 
   const toAdd = (checked ?? []).filter((i) => i.status === "ok" && selected.has(i.email));
+  // "repeated" (el mismo mail dos veces en la lista) no es un problema: se anota una vez.
+  const blocked = (checked ?? []).filter((i) => i.status !== "ok" && i.status !== "repeated");
   const tooMany = toAdd.length > left;
 
   const onSubmit = () => {
@@ -225,19 +237,42 @@ export function BulkInviteForm({
               );
             })}
           </ul>
+          {blocked.length ? (
+            <Alert tone="warning" title={blocked.length === 1 ? "1 mail no se puede anotar:" : `${blocked.length} mails no se pueden anotar:`}>
+              <ul className="mt-1 space-y-0.5">
+                {blocked.map((b, idx) => (
+                  <li key={`${b.email}-${idx}`} className="break-words">
+                    <strong className="break-all">{b.email}</strong>: {b.message && b.status === "taken" ? b.message : BLOCKED_REASON[b.status]}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          ) : null}
           {tooMany ? (
             <Alert tone="warning">
               Seleccionaste {toAdd.length} pero {who === "vos" ? "te quedan" : `a ${who} le quedan`} {left} {left === 1 ? "entrada" : "entradas"}. Desmarcá {toAdd.length - left}.
             </Alert>
-          ) : (
-            <p className="text-sm text-slate-600">
-              Se van a anotar <strong>{toAdd.length}</strong>. {who === "vos" ? "Te quedarían" : `A ${who} le quedarían`}{" "}
-              <strong>{left - toAdd.length}</strong> de {left} entradas disponibles.
+          ) : toAdd.length ? (
+            <p className="text-sm text-slate-700">
+              {blocked.length ? (
+                <>
+                  {toAdd.length === 1 ? "El otro está bien." : `Los otros ${toAdd.length} están bien.`} <strong>¿{toAdd.length === 1 ? "Lo anotamos" : "Los anotamos"}?</strong>{" "}
+                </>
+              ) : (
+                <>Se van a anotar <strong>{toAdd.length}</strong>. </>
+              )}
+              {who === "vos" ? "Te quedarían" : `A ${who} le quedarían`} <strong>{left - toAdd.length}</strong> de {left} entradas disponibles.
             </p>
+          ) : (
+            <p className="text-sm text-slate-600">No hay mails para anotar en esta lista.</p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <button type="button" onClick={onSubmit} disabled={pending || toAdd.length === 0 || tooMany} className={buttonClass}>
-              {pending ? "Anotando…" : `Anotar ${toAdd.length} ${toAdd.length === 1 ? "entrada" : "entradas"}`}
+              {pending
+                ? "Anotando…"
+                : blocked.length && toAdd.length
+                  ? `Sí, anotar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length}`}`
+                  : `Anotar ${toAdd.length} ${toAdd.length === 1 ? "entrada" : "entradas"}`}
             </button>
             <button type="button" onClick={() => setChecked(null)} disabled={pending} className={secondaryButtonClass}>
               Editar la lista
@@ -255,6 +290,20 @@ export function BulkInviteForm({
               {results.some((r) => r.outcome.kind === "created" && r.outcome.sync === "pending")
                 ? " Algunas filas se van a pasar a la planilla en unos minutos (ya están guardadas)."
                 : ""}
+            </Alert>
+          ) : null}
+          {results.some((r) => r.outcome.kind !== "created") ? (
+            <Alert tone="error" title="Atención: estos mails NO se anotaron">
+              <ul className="mt-1 space-y-0.5">
+                {results
+                  .filter((r) => r.outcome.kind !== "created")
+                  .map((r) => (
+                    <li key={r.email} className="break-words">
+                      <strong className="break-all">{r.email}</strong>: {outcomeText(r).text.replace(/: no se anotó$/, "").toLowerCase()}
+                    </li>
+                  ))}
+              </ul>
+              {results.some((r) => r.outcome.kind === "created") ? <p className="mt-1">Los demás quedaron anotados.</p> : null}
             </Alert>
           ) : null}
           <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">

@@ -107,4 +107,21 @@ describe("Anotar varias entradas a la vez", () => {
     // Un egresado común no puede usar la función de administrador.
     await expect(getGraduateActor(juan, juan.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  it("si uno de la lista ya tiene entrada, los demás se anotan igual y ese se informa", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    const maria = await makeUser({ email: "maria@example.com" });
+    const items = ["uno@example.com", "carrera@example.com", "dos@example.com"].map((email) => ({ email, idempotencyKey: key() }));
+    // Juan revisó la lista (todos "ok") y, antes de confirmar, María anota uno.
+    const pre = await checkGuestEmails(juan, items.map((i) => i.email));
+    expect(pre.items.every((i) => i.status === "ok")).toBe(true);
+    await inviteMany(maria, { items: [{ email: "carrera@example.com", idempotencyKey: key() }] }, { syncNow: false });
+    const r = await inviteMany(juan, { items }, { syncNow: false });
+    expect(r.results.map((x) => [x.email, x.outcome.kind])).toEqual([
+      ["uno@example.com", "created"],
+      ["carrera@example.com", "duplicate"],
+      ["dos@example.com", "created"],
+    ]);
+    expect(await quotaOf(juan.id)).toEqual({ used: 2, initial_quota: 16 });
+  });
 });

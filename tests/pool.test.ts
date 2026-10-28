@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/server/db";
-import { inviteFromPool, inviteGuest, getDashboard } from "@/server/invitations";
+import { checkGuestEmails, inviteFromPool, inviteGuest, inviteMany, getDashboard } from "@/server/invitations";
 import { checkPoolEmails, getPoolBoard, importPool, listPool, removeOwnPoolPerson, updatePoolPerson } from "@/server/pool-admin";
 import { cancelInvitation } from "@/server/admin";
 import { MemorySheetsClient } from "@/server/sheets/memory";
@@ -291,5 +291,33 @@ describe("Personas fuera de lista (pool común)", () => {
     const asAdmin = await checkPoolEmails(admin, ["con.entrada@example.com"]);
     expect(asAdmin.items[0].message).toBe("Anotado por Juan");
     expect(await available()).toBe(1);
+  });
+
+  it("anotar con entradas personales a alguien de fuera de lista: se anota normal, sin avisos, y sale de la lista", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    await importPool(admin, "Sofi sofi.lista@gmail.com 40111222\nOtra otra.lista@gmail.com");
+    // La revisión previa no dice nada especial: es un mail que se puede anotar.
+    const check = await checkGuestEmails(juan, ["sofi.lista@gmail.com", "nuevo@gmail.com"]);
+    expect(check.items.map((i) => [i.email, i.status, i.message])).toEqual([
+      ["sofi.lista@gmail.com", "ok", undefined],
+      ["nuevo@gmail.com", "ok", undefined],
+    ]);
+    const r = await inviteMany(
+      juan,
+      { items: ["sofi.lista@gmail.com", "nuevo@gmail.com"].map((email) => ({ email, idempotencyKey: key() })) },
+      { syncNow: false },
+    );
+    expect(r.results.map((x) => x.outcome.kind)).toEqual(["created", "created"]);
+    // Quedó en sus entradas (cupo: 2 usadas) con el mismo mail.
+    expect(await quotaOf(juan.id)).toEqual({ used: 2, initial_quota: 16 });
+    const mine = (await getDashboard(juan)).invitations.map((i) => i.email).sort();
+    expect(mine).toEqual(["nuevo@gmail.com", "sofi.lista@gmail.com"]);
+    // Y salió de fuera de lista; la otra persona sigue disponible.
+    const board = await getPoolBoard(juan);
+    expect(board.available.map((p) => p.email)).toEqual(["otra.lista@gmail.com"]);
+    // Nadie más puede anotarla ni elegirla.
+    const maria = await makeUser({ email: "maria@example.com", name: "María" });
+    expect((await inviteGuest(maria, { email: "sofi.lista@gmail.com", idempotencyKey: key() }, { syncNow: false })).kind).toBe("duplicate");
   });
 });

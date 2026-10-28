@@ -84,4 +84,13 @@ describe("Administración", () => {
     expect(logs).toHaveLength(1);
     expect(logs[0].details).toMatchObject({ guest: "x@example.com", reason: "Error de carga" });
   });
+
+  it("la lista de egresados y el panel público están en orden alfabético (con tildes bien ordenadas)", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false, name: "Org" });
+    await importGraduates(admin, "z@example.com,Zoe Ruiz\nb@example.com,Bruno Paz\na@example.com,Álvaro Díaz\nm@example.com,martín López\nc@example.com,Ana Gómez");
+    const names = (await listUsers(admin)).filter((u) => u.isGraduate).map((u) => u.displayName);
+    expect(names).toEqual(["Álvaro Díaz", "Ana Gómez", "Bruno Paz", "martín López", "Zoe Ruiz"]);
+    const { getPublicBoard } = await import("@/server/public");
+    expect((await getPublicBoard()).graduates.map((g) => g.name)).toEqual(names);
+  });
 });

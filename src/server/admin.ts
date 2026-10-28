@@ -5,6 +5,7 @@ import { parseCsv, MAX_IMPORT_ROWS } from "./csv";
 import { getDb, pgRaisedCode, withTransaction } from "./db";
 import { parseEmail } from "./email";
 import { AppError } from "./errors";
+import { alphaCompare } from "./sort";
 import { retireAvailablePoolPerson, syncAfterWrite } from "./invitations";
 import { poolStats } from "./pool-admin";
 import { sheetsConfigured } from "./sheets/sync";
@@ -142,7 +143,10 @@ export async function listUsers(actorIn: Actor | null): Promise<GraduateRow[]> {
        LEFT JOIN app.invitation_quotas q ON q.user_id = u.id
       ORDER BY lower(COALESCE(u.display_name, u.email))`,
   );
-  return rows.map((r) => ({
+  const sorted = [...rows].sort((a, b) =>
+    alphaCompare(a.display_name ?? a.email, b.display_name ?? b.email),
+  );
+  return sorted.map((r) => ({
     id: r.id,
     email: r.email,
     displayName: r.display_name,

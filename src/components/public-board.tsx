@@ -12,16 +12,16 @@ function normalize(s: string) {
 
 export function PublicBoardTable({ graduates }: { graduates: PublicGraduate[] }) {
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<Sort>("remaining-desc");
+  const [sort, setSort] = useState<Sort>("name");
   const rows = useMemo(() => {
     const nq = normalize(q.trim());
     const list = nq ? graduates.filter((g) => normalize(g.name).includes(nq)) : [...graduates];
     list.sort((a, b) =>
       sort === "name"
-        ? a.name.localeCompare(b.name, "es")
+        ? a.name.localeCompare(b.name, "es", { sensitivity: "base" })
         : sort === "remaining-desc"
-          ? b.remaining - a.remaining || a.name.localeCompare(b.name, "es")
-          : a.remaining - b.remaining || a.name.localeCompare(b.name, "es"),
+          ? b.remaining - a.remaining || a.name.localeCompare(b.name, "es", { sensitivity: "base" })
+          : a.remaining - b.remaining || a.name.localeCompare(b.name, "es", { sensitivity: "base" }),
     );
     return list;
   }, [graduates, q, sort]);
@@ -38,9 +38,9 @@ export function PublicBoardTable({ graduates }: { graduates: PublicGraduate[] })
           className={inputClass}
         />
         <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Ordenar" className={`${inputClass} sm:max-w-60`}>
+          <option value="name">Orden alfabético (A–Z)</option>
           <option value="remaining-desc">Más entradas disponibles</option>
           <option value="remaining-asc">Menos entradas disponibles</option>
-          <option value="name">Nombre (A–Z)</option>
         </select>
       </div>
       {rows.length === 0 ? (

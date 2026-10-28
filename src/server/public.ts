@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { alphaCompare } from "./sort";
 
 export interface PublicGraduate {
   /** Identificador opaco solo para listas de React (no es el ID interno). */
@@ -32,6 +33,8 @@ export async function getPublicBoard(): Promise<PublicBoard> {
     ),
     db.query<{ n: number }>("SELECT count(*) AS n FROM app.pool_people WHERE status = 'available'"),
   ]);
+  // Orden alfabético en español (las tildes no mandan al final); sin nombre, al final.
+  rows.sort((a, b) => (a.name ? 0 : 1) - (b.name ? 0 : 1) || alphaCompare(a.name ?? "", b.name ?? ""));
   const graduates = rows.map((r, i) => ({
     key: String(i),
     name: r.name ?? "Egresado/a (nombre pendiente)",

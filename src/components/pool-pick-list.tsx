@@ -6,6 +6,7 @@ import type { PoolOutcome } from "@/server/invitations";
 import type { FormState } from "@/lib/form-state";
 import { ActionForm } from "./action-form";
 import { CopyButton } from "./copy-button";
+import { MustCopyModal } from "./must-copy-modal";
 import { SubmitButton } from "./submit-button";
 import { Alert, EmptyState, SendWarning, buttonClass, cx, dangerButtonClass, formatDateTime } from "./ui";
 
@@ -37,6 +38,8 @@ export function PoolPickList({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [result, setResult] = useState<PoolOutcome | null>(null);
   const [lastEmail, setLastEmail] = useState("");
+  // Ventana obligatoria para copiar el mail después de dar una entrada.
+  const [mustCopy, setMustCopy] = useState<string | null>(null);
   // Una clave por persona: si se corta la conexión y se reintenta, no se gasta otra entrada.
   const keys = useRef(new Map<string, string>());
 
@@ -59,6 +62,7 @@ export function PoolPickList({
         const r = await pick(p.id, key!);
         if (r.kind !== "error") keys.current.delete(p.id);
         setResult(r);
+        if (r.kind === "created") setMustCopy(r.email);
         router.refresh();
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch {
@@ -71,6 +75,7 @@ export function PoolPickList({
 
   return (
     <div className="space-y-3">
+      {mustCopy ? <MustCopyModal email={mustCopy} onDone={() => setMustCopy(null)} /> : null}
       <SendWarning />
       <div aria-live="polite">
         {result?.kind === "created" ? (

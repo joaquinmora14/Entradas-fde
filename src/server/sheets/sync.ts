@@ -46,7 +46,8 @@ async function loadDesired(emails: string[] | null): Promise<Map<string, Desired
        FROM app.invitations i
        JOIN app.users u ON u.id = i.inviter_id
       WHERE i.status = 'active'
-        AND ($1::text[] IS NULL OR i.guest_email_normalized = ANY($1::text[]))`,
+        AND ($1::text[] IS NULL OR i.guest_email_normalized = ANY($1::text[]))
+      ORDER BY i.created_at, i.id`,
     [emails],
   );
   return new Map(rows.map((r) => [r.email, { guest: r.guest_email, invitedBy: r.label }]));
@@ -77,9 +78,11 @@ export function planSheetChanges(
     list.push(row);
     byEmail.set(key, list);
   }
-  const emails = scope ?? new Set<string>([...byEmail.keys(), ...desired.keys()]);
+  // Se respeta el orden recibido (tareas por orden de creación / invitaciones por fecha),
+  // así las filas nuevas quedan en la planilla en orden cronológico.
+  const emails = scope ?? new Set<string>([...desired.keys(), ...byEmail.keys()]);
   const plan: SheetPlan = { appends: [], updates: [], deletes: [] };
-  for (const email of [...emails].sort()) {
+  for (const email of emails) {
     const existing = byEmail.get(email) ?? [];
     const want = desired.get(email);
     if (want) {

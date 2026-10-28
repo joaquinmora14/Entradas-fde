@@ -4,14 +4,15 @@
 // Se usa en el navegador (vista previa) y en el servidor.
 
 /**
- * Caracteres que los proveedores reales aceptan en la parte local. Se excluyen a
+ * Caracteres que los proveedores reales aceptan en la parte local (incluido el apóstrofe
+ * interno, como en o'brien@…). Se excluyen a
  * propósito los símbolos raros del RFC (* = ' ` { } | ! # …) porque en texto pegado
  * casi siempre son formato (p. ej. *negrita* de WhatsApp) y no parte del mail.
  * La lookbehind evita "recortar" un mail con tilde: en "lucía.perez@gmail.com" no se
  * toma "a.perez@gmail.com".
  */
-const EMAIL_RE = /(?<![\p{L}\p{N}._%+-])[a-z0-9._%+-]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?![\p{L}])/giu;
-const FULL_EMAIL_RE = /^[a-z0-9._%+-]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const EMAIL_RE = /(?<![\p{L}\p{N}._%+-])[a-z0-9._%+-]+(?:'[a-z0-9._%+-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?![\p{L}])/giu;
+const FULL_EMAIL_RE = /^[a-z0-9._%+-]+(?:'[a-z0-9._%+-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
 const PROVIDERS = ["gmail", "hotmail", "outlook", "yahoo", "icloud", "live", "msn", "protonmail", "aol"];
 
@@ -95,7 +96,14 @@ function prepare(text: string): string {
     .replace(/([a-z0-9._%+-])\s*@\s*([a-z0-9-])/gi, "$1@$2")
     .replace(/@([a-z0-9-]+)\s+(?:punto|dot)\s+([a-z]{2,})/gi, "@$1.$2")
     .replace(/\.(com|net|org|edu|gob|ar|uy|cl|es)\s+(?:punto|dot)\s+([a-z]{2,})/gi, ".$1.$2")
-    .replace(new RegExp(`@(${PROVIDERS.join("|")})\\.com(?=[a-z0-9])`, "gi"), (m) => `${m} `);
+    // "juan@gmail.comDNI" / "juan@gmail.com40123456": se separa SOLO si lo que sigue no puede
+    // ser parte del dominio (números, mayúsculas, o una palabra en minúsculas que no sigue
+    // con "." o "-"). Así "x@gmail.company.org" (un dominio real) no se toca.
+    .replace(new RegExp(`@(?:${PROVIDERS.join("|")})\\.com`, "gi"), (m: string, offset: number, all: string) => {
+      const rest = all.slice(offset + m.length);
+      const glued = /^[0-9A-Z]/.test(rest) || /^[a-z]+(?:$|[^a-z0-9.-])/.test(rest);
+      return glued ? `${m} ` : m;
+    });
 }
 
 function suggestionFor(domain: string, local: string): string | undefined {
@@ -120,6 +128,39 @@ function repair(token: string): string | undefined {
   return FULL_EMAIL_RE.test(t) ? t : undefined;
 }
 
+/**
+ * Limpia un mail encontrado SIN perder caracteres válidos:
+ * - nunca quita "_", "-", "+" o "%" del principio salvo que sea cursiva de WhatsApp (_mail_);
+ * - quita solo puntos sueltos al principio (un mail no puede empezar con ".");
+ * - si el final del dominio pasa de minúscula a mayúscula ("empresa.comDNI") corta ahí.
+ */
+/** Terminaciones de dominio frecuentes (para separar "comDNI", "co.ukNombre", etc.). */
+const KNOWN_TLDS = [
+  "com", "net", "org", "edu", "gob", "gov", "mil", "int", "info", "biz", "app", "dev", "io", "me", "tv",
+  "ar", "uy", "cl", "py", "bo", "pe", "ec", "ve", "co", "mx", "br", "es", "pt", "it", "fr", "de", "uk",
+  "us", "ca", "au", "nz", "ch", "nl", "be", "il", "eu",
+].join("|");
+
+function cleanMatch(raw: string, line: string): string {
+  let m = raw;
+  const at = m.lastIndexOf("@");
+  const domain = m.slice(at + 1);
+  const lastDot = domain.lastIndexOf(".");
+  const tld = domain.slice(lastDot + 1);
+  // Solo se corta si lo anterior es una terminación conocida escrita en minúsculas y lo que
+  // sigue es una palabra que empieza en mayúscula ("comDNI", "comNombre"). Un dominio con
+  // mayúsculas mezcladas ("Hotmail.CoM") NO se toca.
+  const glued = new RegExp(`^(${KNOWN_TLDS})([A-Z][A-Za-z]+)$`).exec(tld);
+  if (glued) m = m.slice(0, at + 1 + lastDot + 1 + glued[1].length);
+  if (m.startsWith("_")) {
+    const start = line.indexOf(raw);
+    const after = line[start + raw.length];
+    if (after === "_") m = m.slice(1); // cursiva de WhatsApp: _juan@gmail.com_
+  }
+  m = m.replace(/^\.+/, "");
+  return m.toLowerCase();
+}
+
 export function analyzeEmailText(text: string): TextAnalysis {
   const prepared = prepare(text ?? "");
   const seen = new Set<string>();
@@ -133,7 +174,7 @@ export function analyzeEmailText(text: string): TextAnalysis {
     if (!line.trim()) continue;
     const found = line.match(EMAIL_RE) ?? [];
     for (const raw of found) {
-      const email = raw.toLowerCase().replace(/^[._%+-]+|[._-]+$/g, "");
+      const email = cleanMatch(raw, line);
       if (seen.has(email)) {
         repeated.push(email);
         continue;

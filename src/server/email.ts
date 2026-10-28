@@ -29,8 +29,9 @@ export function parseEmail(input: unknown): ParsedEmail {
   }
   if (domain === "gmail.com" || domain === "googlemail.com") {
     domain = "gmail.com";
-    local = local.split("+")[0].replace(/\./g, "");
-    if (!local) return { ok: false, original, reason: "El email no tiene un formato válido." };
+    // La identidad ignora puntos y "+sufijo"; si no queda nada antes del "+", se usa todo.
+    const base = local.split("+")[0].replace(/\./g, "");
+    local = base || local.replace(/\./g, "");
   }
   return { ok: true, original: lower, normalized: `${local}@${domain}` };
 }

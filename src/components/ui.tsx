@@ -144,3 +144,27 @@ export function formatDateTime(iso: string): string {
     timeZone: "America/Argentina/Buenos_Aires",
   }).format(new Date(iso));
 }
+
+/**
+ * Aviso obligatorio: la app NO envía nada. El egresado tiene que mandarle la invitación
+ * a cada mail que anota. Se muestra en cada paso donde se anota a alguien.
+ */
+export function SendWarning({ variant = "big", who = "vos" }: { variant?: "big" | "inline"; who?: string }) {
+  const sujeto = who === "vos" ? "vos" : who;
+  if (variant === "inline") {
+    return (
+      <p className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">
+        ⚠️ Recordá: al anotar no se le manda nada a nadie. Después {who === "vos" ? "tenés" : "tiene"} que mandarle la invitación a cada uno.
+      </p>
+    );
+  }
+  return (
+    <div role="note" className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-950">
+      <p className="text-base font-extrabold uppercase tracking-wide">⚠️ Importante</p>
+      <p className="mt-1 text-lg font-bold leading-snug">
+        La app NO le manda nada a nadie. Si anotás un mail, después {sujeto === "vos" ? "tenés que mandarle VOS" : `${sujeto} tiene que mandarle`} la invitación a esa persona.
+      </p>
+      <p className="mt-1 text-sm">Anotar solo reserva el lugar y evita que otro egresado use el mismo mail.</p>
+    </div>
+  );
+}

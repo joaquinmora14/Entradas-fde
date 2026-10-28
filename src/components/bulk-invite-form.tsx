@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { analyzeEmailText, MAX_EMAILS_PER_BATCH, type ExtractedEmail, type UnreadableEmail } from "@/lib/extract-emails";
 import { UnreadableBox } from "./unreadable-box";
 import type { BatchItemResult, CheckedEmail, CheckStatus } from "@/server/invitations";
-import { Alert, Badge, buttonClass, cx, inputClass, secondaryButtonClass } from "./ui";
+import { Alert, Badge, SendWarning, buttonClass, cx, inputClass, secondaryButtonClass } from "./ui";
+import { CopyButton } from "./copy-button";
 
 type CheckResult = { items: CheckedEmail[]; remaining: number } | { error: string };
 type SubmitResult = { results: BatchItemResult[]; remaining: number } | { error: string };
@@ -179,6 +180,7 @@ export function BulkInviteForm({
 
   return (
     <div className="space-y-3">
+      <SendWarning who={who} />
       <label htmlFor="guest-list" className="block text-sm font-medium text-slate-700">
         Pegá acá el mail o la lista completa que te mandaron (nombre, mail, DNI…). Se toman solo los mails.
       </label>
@@ -286,6 +288,7 @@ export function BulkInviteForm({
           ) : (
             <p className="text-sm text-slate-600">No hay mails para anotar en esta lista.</p>
           )}
+          {toAdd.length > 0 ? <SendWarning variant="inline" who={who} /> : null}
           <div className="flex flex-col gap-2 sm:flex-row">
             {toAdd.length === 0 ? (
               <button type="button" onClick={resetAll} disabled={pending} className={buttonClass}>
@@ -322,6 +325,32 @@ export function BulkInviteForm({
                 ? " Algunas filas se van a pasar a la planilla en unos minutos (ya están guardadas)."
                 : ""}
             </Alert>
+          ) : null}
+          {results.some((r) => r.outcome.kind === "created") ? (
+            <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4">
+              <p className="text-base font-extrabold text-amber-950">
+                ⚠️ Ahora {who === "vos" ? "mandales VOS" : `${who} tiene que mandarles`} la invitación a {results.filter((r) => r.outcome.kind === "created").length === 1 ? "este mail" : "estos mails"}:
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {results
+                  .filter((r) => r.outcome.kind === "created")
+                  .map((r) => (
+                    <li key={r.email} className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2">
+                      <span className="min-w-0 flex-1 select-all break-all font-semibold text-slate-900">{r.email}</span>
+                      <CopyButton text={r.email} />
+                    </li>
+                  ))}
+              </ul>
+              {results.filter((r) => r.outcome.kind === "created").length > 1 ? (
+                <div className="mt-2">
+                  <CopyButton
+                    text={results.filter((r) => r.outcome.kind === "created").map((r) => r.email).join(", ")}
+                    label="Copiar todos los mails"
+                    className="px-3 py-2 text-sm"
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : null}
           {results.some((r) => r.outcome.kind !== "created") ? (
             <Alert tone="error" title="Atención: estos mails NO se anotaron">

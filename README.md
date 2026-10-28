@@ -59,6 +59,10 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
    invitado, y **Darle mi entrada** a la persona que elija (usa 1 de sus 16 entradas). El mail queda a la vista con un botón
    **Copiar** para mandárselo.
 
+**La app no envía nada a los invitados.** En cada paso (antes de pegar, al confirmar y después de anotar) se muestra un
+aviso grande: quien anota un mail tiene que mandarle la invitación a esa persona. Después de anotar se listan los mails
+con botones **Copiar** y **Copiar todos los mails**.
+
 La extracción de mails es determinística (reglas, no IA): es exacta, instantánea, gratuita y los datos de los
 invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes como `juan arroba gmail punto com`.
 
@@ -135,6 +139,12 @@ Las pruebas automatizadas corren contra un **PostgreSQL real** y usan una **hoja
 duplicados, concurrencia, idempotencia, errores sin descuentos, protección de rutas administrativas, panel público sin
 emails, outbox con reinicio, caídas de Google, reintentos sin duplicados, reconciliación y todos los casos del pool.
 La escritura real en Google Sheets se verifica en producción (ver “Google Sheets: configuración”).
+
+**Fidelidad de los mails** (`tests/email-fidelity.test.ts`): un generador reproducible crea mails con todos los
+caracteres válidos (puntos, `+`, `-`, `_`, `%`, apóstrofes, números, subdominios, mayúsculas) dentro de listas con
+formatos reales (WhatsApp, tablas, formularios, DNI pegado, comillas, paréntesis…) y verifica que el mail sea idéntico
+en la extracción, la revisión, la base, los paneles, el pool y la planilla. Para correr muchísimos más casos:
+`FIDELITY_LISTS=60000 npx vitest run tests/email-fidelity.test.ts` (~300.000 mails por corrida).
 
 ## Estructura
 

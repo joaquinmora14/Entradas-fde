@@ -7,7 +7,7 @@ import type { FormState } from "@/lib/form-state";
 import { ActionForm } from "./action-form";
 import { CopyButton } from "./copy-button";
 import { SubmitButton } from "./submit-button";
-import { Alert, EmptyState, buttonClass, cx, dangerButtonClass, formatDateTime } from "./ui";
+import { Alert, EmptyState, SendWarning, buttonClass, cx, dangerButtonClass, formatDateTime } from "./ui";
 
 export interface PoolPerson {
   id: string;
@@ -41,7 +41,12 @@ export function PoolPickList({
   const keys = useRef(new Map<string, string>());
 
   const give = (p: PoolPerson) => {
-    if (!window.confirm(`¿Darle una de tus entradas a ${p.email}?\nTe quedarían ${remaining - 1} de tus entradas.`)) return;
+    if (
+      !window.confirm(
+        `¿Darle una de tus entradas a ${p.email}?\nTe quedarían ${remaining - 1} de tus entradas.\n\n⚠️ IMPORTANTE: la app NO le manda nada. Después tenés que mandarle VOS la invitación a ese mail.`,
+      )
+    )
+      return;
     let key = keys.current.get(p.id);
     if (!key) {
       key = crypto.randomUUID();
@@ -66,6 +71,7 @@ export function PoolPickList({
 
   return (
     <div className="space-y-3">
+      <SendWarning />
       <div aria-live="polite">
         {result?.kind === "created" ? (
           <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
@@ -74,6 +80,9 @@ export function PoolPickList({
               <p className="min-w-0 flex-1 select-all break-all rounded-lg bg-white px-3 py-2 text-lg font-bold text-slate-900">{result.email}</p>
               <CopyButton text={result.email} label="Copiar mail" className="px-3 py-2 text-sm" />
             </div>
+            <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-base font-extrabold text-amber-950">
+              ⚠️ Ahora mandale VOS la invitación a este mail: la app no le manda nada.
+            </p>
             <p className="mt-2 text-sm text-emerald-900">
               Te quedan {result.remaining} {result.remaining === 1 ? "entrada" : "entradas"}.{" "}
               {result.sync === "synced" ? "Ya figura en la planilla." : "Se va a pasar a la planilla en unos minutos (ya está guardado)."}

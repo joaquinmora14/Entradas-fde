@@ -29,6 +29,17 @@ export default async function PoolPage() {
       </div>
 
       <Card>
+        <h2 className="text-lg font-semibold">Sumar gente a la lista</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Pegá la lista tal como te llegó (nombre, mail, DNI…). Se toman solo los mails. No se agregan los que ya están en la
+          lista ni los que ya tienen entrada. Sumar a alguien no le da entrada: queda en la lista para que un egresado lo elija.
+        </p>
+        <div className="mt-3">
+          <PoolAddForm check={checkPoolEmailsAction} add={addEmailsToPoolAction} />
+        </div>
+      </Card>
+
+      <Card>
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Lista de fuera de lista</h2>
           <Badge tone="brand">Más antiguos primero</Badge>
@@ -62,16 +73,6 @@ export default async function PoolPage() {
         )}
       </Card>
 
-      <Card>
-        <h2 className="text-lg font-semibold">Sumar gente a la lista</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Pegá la lista tal como te llegó (nombre, mail, DNI…). Se toman solo los mails. No se agregan los que ya están en la
-          lista ni los que ya tienen entrada. Sumar a alguien no le da entrada: queda en la lista para que un egresado lo elija.
-        </p>
-        <div className="mt-3">
-          <PoolAddForm check={checkPoolEmailsAction} add={addEmailsToPoolAction} />
-        </div>
-      </Card>
 
       {board.assigned.length ? (
         <Card>

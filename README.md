@@ -78,6 +78,8 @@ invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes
 - **Egresados:** importar la lista (CSV o texto `email,nombre`, el nombre es opcional), ver cuántas entradas le quedan
   a cada uno, renombrar, deshabilitar, quitar a quien todavía no se registró, y **generar enlaces de activación / nueva
   contraseña** (válidos 24 h, un uso).
+- **Quién invitó:** todos los egresados (orden alfabético) con los mails a los que les dio entrada, agrupados como los
+  anotaron, con buscador instantáneo por egresado o invitado y filtros “Invitaron a alguien / Todavía no invitaron / Todos”.
 - **Ficha de cada egresado** (tocar su nombre): entradas restantes y usadas, todos los mails que anotó, anular o
   corregir cada uno, y **anotar entradas en su nombre** (usa su cupo y queda auditado como hecho por el admin).
 - **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**

@@ -160,6 +160,45 @@ export async function listUsers(actorIn: Actor | null): Promise<GraduateRow[]> {
   }));
 }
 
+export interface InviterSummary {
+  id: string;
+  name: string;
+  email: string;
+  status: "pending" | "active" | "disabled";
+  initialQuota: number;
+  used: number;
+  /** Mails que anotó (activos), agrupados como se anotaron: los grupos más recientes primero. */
+  groups: Array<{ id: string; createdAt: string; source: "direct" | "pool"; emails: string[] }>;
+}
+
+/** Para el administrador: cada egresado (en orden alfabético) con todos los mails a los que les dio entrada. */
+export async function listInvitesByGraduate(actorIn: Actor | null): Promise<InviterSummary[]> {
+  const users = (await listUsers(actorIn)).filter((u) => u.isGraduate);
+  const { rows } = await getDb().query<{ inviter_id: string; group_id: string; guest_email: string; source: "direct" | "pool"; created_at: Date }>(
+    `SELECT inviter_id, group_id, guest_email, source, created_at FROM app.invitations
+      WHERE status = 'active'
+      ORDER BY created_at, id`,
+  );
+  const byUser = new Map<string, Map<string, InviterSummary["groups"][number]>>();
+  for (const r of rows) {
+    let groups = byUser.get(r.inviter_id);
+    if (!groups) byUser.set(r.inviter_id, (groups = new Map()));
+    let g = groups.get(r.group_id);
+    if (!g) groups.set(r.group_id, (g = { id: r.group_id, createdAt: r.created_at.toISOString(), source: r.source, emails: [] }));
+    g.emails.push(r.guest_email);
+    g.createdAt = r.created_at.toISOString();
+  }
+  return users.map((u) => ({
+    id: u.id,
+    name: u.displayName ?? u.email,
+    email: u.email,
+    status: u.status,
+    initialQuota: u.initialQuota,
+    used: u.used,
+    groups: [...(byUser.get(u.id)?.values() ?? [])].reverse(),
+  }));
+}
+
 export async function setUserDisabled(actorIn: Actor | null, userId: string, disabled: boolean): Promise<void> {
   const actor = requireAdmin(actorIn);
   if (userId === actor.id) throw new AppError("VALIDATION", "No podés deshabilitar tu propia cuenta.");

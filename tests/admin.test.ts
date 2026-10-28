@@ -7,6 +7,7 @@ import {
   getAdminOverview,
   importGraduates,
   listAuditLogs,
+  listInvitesByGraduate,
   listInvitations,
   listUsers,
   setUserDisabled,
@@ -15,7 +16,7 @@ import {
 import { importPool, listPool, updatePoolPerson } from "@/server/pool-admin";
 import { diagnoseSheet, reconcileSheet } from "@/server/sheets/sync";
 import { createSession, validateSessionToken } from "@/server/auth";
-import { inviteGuest } from "@/server/invitations";
+import { inviteFromPool, inviteGroup, inviteGuest } from "@/server/invitations";
 import { count, key, makeUser } from "./support/factory";
 
 describe("Administración", () => {
@@ -34,6 +35,7 @@ describe("Administración", () => {
       () => listAuditLogs(juan),
       () => updateRegistrationCode(juan, "abcd"),
       () => listPool(juan),
+      () => listInvitesByGraduate(juan),
       () => updatePoolPerson(juan, "00000000-0000-4000-8000-000000000000", "delete"),
     ];
     for (const op of ops) await expect(op()).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -92,5 +94,27 @@ describe("Administración", () => {
     expect(names).toEqual(["Álvaro Díaz", "Ana Gómez", "Bruno Paz", "martín López", "Zoe Ruiz"]);
     const { getPublicBoard } = await import("@/server/public");
     expect((await getPublicBoard()).graduates.map((g) => g.name)).toEqual(names);
+  });
+
+  it("quién invitó a quién: cada egresado con sus invitados agrupados", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const zoe = await makeUser({ email: "zoe@example.com", name: "Zoe" });
+    const ana = await makeUser({ email: "ana@example.com", name: "Ana" });
+    await makeUser({ email: "beto@example.com", name: "Beto" });
+    await inviteGroup(zoe, { emails: ["z1@example.com", "z2@example.com"], idempotencyKey: key() }, { syncNow: false });
+    await inviteGroup(zoe, { emails: ["z3@example.com"], idempotencyKey: key() }, { syncNow: false });
+    await importPool(admin, "p1@example.com p2@example.com");
+    const { rows } = await (await import("@/server/db")).getDb().query("SELECT group_id FROM app.pool_people LIMIT 1");
+    await inviteFromPool(ana, { poolGroupId: rows[0].group_id, idempotencyKey: key() }, { syncNow: false });
+    // Una anulada no aparece.
+    const r = await inviteGuest(ana, { email: "anulada@example.com", idempotencyKey: key() }, { syncNow: false });
+    if (r.kind === "created") await cancelInvitation(admin, r.invitationId, "error", { syncNow: false });
+
+    const list = await listInvitesByGraduate(admin);
+    expect(list.map((g) => [g.name, g.used, g.groups.map((gr) => [gr.source, gr.emails])])).toEqual([
+      ["Ana", 2, [["pool", ["p1@example.com", "p2@example.com"]]]],
+      ["Beto", 0, []],
+      ["Zoe", 3, [["direct", ["z3@example.com"]], ["direct", ["z1@example.com", "z2@example.com"]]]],
+    ]);
   });
 });

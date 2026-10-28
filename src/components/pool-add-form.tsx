@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { analyzeEmailText, type ExtractedEmail, type UnreadableEmail } from "@/lib/extract-emails";
 import type { PoolCheckItem, PoolCheckStatus, PoolImportReport } from "@/server/pool-admin";
@@ -29,6 +29,7 @@ export function PoolAddForm({
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const [extracted, setExtracted] = useState<ExtractedEmail[]>([]);
   const [checked, setChecked] = useState<PoolCheckItem[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -56,6 +57,17 @@ export function PoolAddForm({
       setChecked(res.items);
       setSelected(new Set(res.items.filter((i) => i.status === "ok").map((i) => i.email)));
     });
+  };
+
+  /** Limpia todo para pegar otra lista sin tener que borrar a mano. */
+  const resetAll = () => {
+    setText("");
+    setChecked(null);
+    setExtracted([]);
+    setUnreadable([]);
+    setIgnored(0);
+    setError("");
+    setTimeout(() => textRef.current?.focus(), 0);
   };
 
   const onReview = () => {
@@ -111,6 +123,7 @@ export function PoolAddForm({
   return (
     <div className="space-y-3">
       <textarea
+        ref={textRef}
         aria-label="Lista de personas"
         value={text}
         onChange={(e) => {
@@ -126,9 +139,16 @@ export function PoolAddForm({
         className={inputClass}
       />
       {!checked ? (
-        <button type="button" onClick={onReview} disabled={pending || !text.trim()} className={cx(buttonClass, "w-full sm:w-auto")}>
-          {pending ? "Revisando…" : "Revisar mails"}
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={onReview} disabled={pending || !text.trim()} className={cx(buttonClass, "flex-1 sm:flex-none")}>
+            {pending ? "Revisando…" : "Revisar mails"}
+          </button>
+          {text ? (
+            <button type="button" onClick={resetAll} disabled={pending} className={secondaryButtonClass}>
+              Borrar
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {error ? <Alert tone="error">{error}</Alert> : null}
       {done ? <Alert tone="success">{done}</Alert> : null}
@@ -201,6 +221,11 @@ export function PoolAddForm({
             <p className="text-sm text-slate-600">No hay mails nuevos para agregar en esta lista.</p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
+            {toAdd.length === 0 ? (
+              <button type="button" onClick={resetAll} disabled={pending} className={buttonClass}>
+                Probar con otra lista
+              </button>
+            ) : (
             <button type="button" onClick={onAdd} disabled={pending || toAdd.length === 0} className={buttonClass}>
               {pending
                 ? "Agregando…"
@@ -208,9 +233,15 @@ export function PoolAddForm({
                   ? `Sí, agregar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length}`}`
                   : `Agregar ${toAdd.length} a la lista`}
             </button>
+            )}
             <button type="button" onClick={() => setChecked(null)} disabled={pending} className={secondaryButtonClass}>
               Editar la lista
             </button>
+            {toAdd.length > 0 ? (
+              <button type="button" onClick={resetAll} disabled={pending} className={secondaryButtonClass}>
+                Probar con otra lista
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

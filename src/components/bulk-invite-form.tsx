@@ -60,6 +60,7 @@ export function BulkInviteForm({
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const [extracted, setExtracted] = useState<ExtractedEmail[]>([]);
   const [checked, setChecked] = useState<CheckedEmail[] | null>(null);
   const [left, setLeft] = useState(remaining);
@@ -107,6 +108,17 @@ export function BulkInviteForm({
       setLeft(res.remaining);
       setSelected(new Set(res.items.filter((i) => i.status === "ok").map((i) => i.email)));
     });
+  };
+
+  /** Limpia todo para pegar otra lista sin tener que borrar a mano. */
+  const resetAll = () => {
+    setText("");
+    setChecked(null);
+    setExtracted([]);
+    setUnreadable([]);
+    setIgnored(0);
+    setError("");
+    setTimeout(() => textRef.current?.focus(), 0);
   };
 
   const onReview = () => {
@@ -171,6 +183,7 @@ export function BulkInviteForm({
         Pegá acá el mail o la lista completa que te mandaron (nombre, mail, DNI…). Se toman solo los mails.
       </label>
       <textarea
+        ref={textRef}
         id="guest-list"
         value={text}
         onChange={(e) => {
@@ -186,9 +199,16 @@ export function BulkInviteForm({
         className={inputClass}
       />
       {!checked ? (
-        <button type="button" onClick={onReview} disabled={pending || !text.trim()} className={cx(buttonClass, "w-full sm:w-auto")}>
-          {pending ? "Revisando…" : "Revisar mails"}
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={onReview} disabled={pending || !text.trim()} className={cx(buttonClass, "flex-1 sm:flex-none")}>
+            {pending ? "Revisando…" : "Revisar mails"}
+          </button>
+          {text ? (
+            <button type="button" onClick={resetAll} disabled={pending} className={secondaryButtonClass}>
+              Borrar
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {error ? <Alert tone="error">{error}</Alert> : null}
@@ -267,6 +287,11 @@ export function BulkInviteForm({
             <p className="text-sm text-slate-600">No hay mails para anotar en esta lista.</p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
+            {toAdd.length === 0 ? (
+              <button type="button" onClick={resetAll} disabled={pending} className={buttonClass}>
+                Probar con otra lista
+              </button>
+            ) : (
             <button type="button" onClick={onSubmit} disabled={pending || toAdd.length === 0 || tooMany} className={buttonClass}>
               {pending
                 ? "Anotando…"
@@ -274,9 +299,15 @@ export function BulkInviteForm({
                   ? `Sí, anotar ${toAdd.length === 1 ? "ese" : `los ${toAdd.length}`}`
                   : `Anotar ${toAdd.length} ${toAdd.length === 1 ? "entrada" : "entradas"}`}
             </button>
+            )}
             <button type="button" onClick={() => setChecked(null)} disabled={pending} className={secondaryButtonClass}>
               Editar la lista
             </button>
+            {toAdd.length > 0 ? (
+              <button type="button" onClick={resetAll} disabled={pending} className={secondaryButtonClass}>
+                Probar con otra lista
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

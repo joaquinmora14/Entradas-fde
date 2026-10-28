@@ -12,10 +12,10 @@ import { checkPoolEmails, importPool, removeOwnPoolPerson } from "@/server/pool-
 import type { FormState } from "@/lib/form-state";
 import { clientIp, getCurrentActor } from "@/lib/session";
 
-export async function poolInviteAction(_prev: PoolOutcome | null, form: FormData): Promise<PoolOutcome> {
+export async function poolInviteAction(poolPersonId: string, idempotencyKey: string): Promise<PoolOutcome> {
   const actor = await getCurrentActor();
   if (!actor) return { kind: "validation", message: "Tu sesión venció. Volvé a iniciar sesión." };
-  const result = await inviteFromPool(actor, { idempotencyKey: form.get("idempotencyKey"), ip: await clientIp() });
+  const result = await inviteFromPool(actor, { poolPersonId, idempotencyKey, ip: await clientIp() });
   revalidatePath("/pool");
   revalidatePath("/panel");
   return result;

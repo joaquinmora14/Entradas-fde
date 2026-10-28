@@ -53,7 +53,7 @@ export default async function GraduateDetailPage({ params }: { params: Promise<{
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Restantes" value={d.remaining} tone="brand" />
         <Stat label="Usadas" value={d.user.used} hint={`de ${d.user.initialQuota}`} />
-        <Stat label="Del pool" value={d.user.poolInvited} hint="No usan entradas" />
+        <Stat label="Desde la lista" value={d.user.poolInvited} hint="Incluidas en las usadas" />
       </div>
       <ProgressBar value={d.user.used} max={d.user.initialQuota} label="Entradas usadas" />
 

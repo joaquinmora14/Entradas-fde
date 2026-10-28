@@ -8,6 +8,12 @@ import { makeAllPendingDue, runSheetSync, setSheetsClientForTests } from "@/serv
 import { getPublicBoard } from "@/server/public";
 import { count, key, makeUser, quotaOf } from "./support/factory";
 
+/** La persona disponible más antigua (o un id inexistente si la lista está vacía). */
+async function oldestId(): Promise<string> {
+  const { rows } = await getDb().query("SELECT id FROM app.pool_people WHERE status = 'available' ORDER BY seq LIMIT 1");
+  return rows[0]?.id ?? "00000000-0000-4000-8000-000000000000";
+}
+
 async function available() {
   return count("SELECT count(*) AS n FROM app.pool_people WHERE status = 'available'");
 }
@@ -56,13 +62,13 @@ describe("Personas fuera de lista (pool común)", () => {
     ).rejects.toThrow(/POOL_EMAIL_ALREADY_INVITED/);
   });
 
-  it("pool 4, 5, 6 y 7: un egresado invita con una sola acción, sin tocar su cupo individual", async () => {
+  it("pool 4, 5, 6 y 7: un egresado elige a una persona de la lista y se le descuenta una entrada", async () => {
     const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
     await importPool(admin, "primero@example.com");
     await importPool(admin, "segundo@example.com");
-    const r = await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false });
-    expect(r).toMatchObject({ kind: "created", email: "primero@example.com", poolAvailable: 1 }); // FIFO
+    const r = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
+    expect(r).toMatchObject({ kind: "created", email: "primero@example.com", remaining: 15 });
     const { rows } = await getDb().query(
       `SELECT p.status, p.assigned_to, i.inviter_id, i.source, i.guest_email_normalized
          FROM app.pool_people p JOIN app.invitations i ON i.id = p.invitation_id`,
@@ -71,23 +77,52 @@ describe("Personas fuera de lista (pool común)", () => {
       { status: "assigned", assigned_to: juan.id, inviter_id: juan.id, source: "pool", guest_email_normalized: "primero@example.com" },
     ]);
     expect(await available()).toBe(1);
-    expect(await quotaOf(juan.id)).toEqual({ used: 0, initial_quota: 16 });
+    expect(await quotaOf(juan.id)).toEqual({ used: 1, initial_quota: 16 });
     const d = await getDashboard(juan);
-    expect(d).toMatchObject({ quota: { remaining: 16 }, poolAvailable: 1, poolInvitedByMe: 1 });
+    expect(d).toMatchObject({ quota: { remaining: 15 }, poolAvailable: 1, poolInvitedByMe: 1 });
+    // También puede elegir a una persona que no es la primera.
+    const { rows: [segundo] } = await getDb().query("SELECT id FROM app.pool_people WHERE email = 'segundo@example.com'");
+    expect(await inviteFromPool(juan, { poolPersonId: segundo.id, idempotencyKey: key() }, { syncNow: false })).toMatchObject({
+      kind: "created",
+      email: "segundo@example.com",
+      remaining: 14,
+    });
   });
 
-  it("pool 8: solicitudes simultáneas nunca asignan a la misma persona", async () => {
+  it("pool 8: si varios eligen a la misma persona a la vez, solo uno se la queda", async () => {
     const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const users = await Promise.all(Array.from({ length: 6 }, (_, i) => makeUser({ email: `e${i}@example.com` })));
-    await importPool(admin, "p1@example.com\np2@example.com\np3@example.com\np4@example.com");
+    await importPool(admin, "p1@example.com\np2@example.com");
+    const target = await oldestId();
     const results = await Promise.all(
-      users.map((u) => inviteFromPool(u, { idempotencyKey: key() }, { syncNow: false })),
+      users.map((u) => inviteFromPool(u, { poolPersonId: target, idempotencyKey: key() }, { syncNow: false })),
     );
-    const created = results.filter((r) => r.kind === "created");
-    expect(created).toHaveLength(4);
-    expect(results.filter((r) => r.kind === "pool_empty")).toHaveLength(2);
-    expect(new Set(created.map((r) => (r.kind === "created" ? r.email : ""))).size).toBe(4);
-    expect(await count("SELECT count(*) AS n FROM app.invitations WHERE source = 'pool'")).toBe(4);
+    expect(results.filter((r) => r.kind === "created")).toHaveLength(1);
+    expect(results.filter((r) => r.kind === "unavailable")).toHaveLength(5);
+    expect(await count("SELECT count(*) AS n FROM app.invitations WHERE source = 'pool'")).toBe(1);
+    // Solo al que se la quedó se le descontó una entrada.
+    expect(await count("SELECT sum(used) AS n FROM app.invitation_quotas")).toBe(1);
+  });
+
+  it("no se puede elegir a alguien del pool sin entradas disponibles", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const juan = await makeUser({ email: "juan@example.com", quota: 1 });
+    await importPool(admin, "p1@example.com\np2@example.com");
+    expect((await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false })).kind).toBe("created");
+    expect((await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false })).kind).toBe("quota_exhausted");
+    expect(await available()).toBe(1);
+    expect(await quotaOf(juan.id)).toEqual({ used: 1, initial_quota: 1 });
+  });
+
+  it("anular una entrada dada desde la lista devuelve la entrada al egresado", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const juan = await makeUser({ email: "juan@example.com" });
+    await importPool(admin, "p1@example.com");
+    const r = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
+    if (r.kind !== "created") throw new Error("no creada");
+    expect(await quotaOf(juan.id)).toEqual({ used: 1, initial_quota: 16 });
+    await cancelInvitation(admin, r.invitationId, "error", { syncNow: false });
+    expect(await quotaOf(juan.id)).toEqual({ used: 0, initial_quota: 16 });
   });
 
   it("pool 9: una solicitud repetida (error de red) no genera invitaciones adicionales", async () => {
@@ -96,10 +131,10 @@ describe("Personas fuera de lista (pool común)", () => {
     await importPool(admin, "p1@example.com\np2@example.com");
     const k = key();
     const [a, b] = await Promise.all([
-      inviteFromPool(juan, { idempotencyKey: k }, { syncNow: false }),
-      inviteFromPool(juan, { idempotencyKey: k }, { syncNow: false }),
+      inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: k }, { syncNow: false }),
+      inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: k }, { syncNow: false }),
     ]);
-    const c = await inviteFromPool(juan, { idempotencyKey: k }, { syncNow: false });
+    const c = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: k }, { syncNow: false });
     expect([a.kind, b.kind, c.kind]).toEqual(["created", "created", "created"]);
     if (a.kind === "created" && b.kind === "created" && c.kind === "created") {
       expect(b.email).toBe(a.email);
@@ -119,14 +154,14 @@ describe("Personas fuera de lista (pool común)", () => {
       CREATE TRIGGER test_fail AFTER UPDATE ON app.pool_people FOR EACH ROW EXECUTE FUNCTION app.test_fail();
     `);
     try {
-      const r = await inviteFromPool(juan, { idempotencyKey: key() });
+      const r = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() });
       expect(r.kind).toBe("error");
     } finally {
       await getDb().query("DROP TRIGGER test_fail ON app.pool_people; DROP FUNCTION app.test_fail();");
     }
     expect(await available()).toBe(1);
     expect(await count("SELECT count(*) AS n FROM app.invitations")).toBe(0);
-    expect((await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false })).kind).toBe("created");
+    expect((await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false })).kind).toBe("created");
   });
 
   it("pool 11: si Google Sheets falla, la invitación queda pendiente y se recupera sola", async () => {
@@ -137,7 +172,7 @@ describe("Personas fuera de lista (pool común)", () => {
     const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
     await importPool(admin, "p1@example.com");
     expect(sheet.rows).toEqual([]); // cargar al pool no crea filas
-    const r = await inviteFromPool(juan, { idempotencyKey: key() });
+    const r = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() });
     expect(r).toMatchObject({ kind: "created", sync: "pending" });
     sheet.down = false;
     await makeAllPendingDue();
@@ -149,7 +184,7 @@ describe("Personas fuera de lista (pool común)", () => {
     const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
     const juan = await makeUser({ email: "juan@example.com" });
     await importPool(admin, "p1@example.com");
-    const r = await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false });
+    const r = await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
     const again = await importPool(admin, "P1@example.com");
     expect(again.added).toEqual([]);
     expect(await available()).toBe(0);
@@ -158,7 +193,7 @@ describe("Personas fuera de lista (pool común)", () => {
     const pool = await listPool(admin);
     expect(pool[0]).toMatchObject({ status: "retired" });
     await expect(getDb().query("UPDATE app.pool_people SET status = 'available'")).rejects.toThrow();
-    expect((await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false })).kind).toBe("pool_empty");
+    expect((await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false })).kind).toBe("unavailable");
   });
 
   it("invitar directamente a alguien del pool lo retira del pool disponible", async () => {
@@ -167,7 +202,7 @@ describe("Personas fuera de lista (pool común)", () => {
     await importPool(admin, "p1@example.com");
     expect((await inviteGuest(juan, { email: "p1@example.com", idempotencyKey: key() }, { syncNow: false })).kind).toBe("created");
     expect(await available()).toBe(0);
-    expect((await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false })).kind).toBe("pool_empty");
+    expect((await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false })).kind).toBe("unavailable");
   });
 
   it("el administrador puede desactivar, reactivar y eliminar personas disponibles", async () => {
@@ -189,12 +224,12 @@ describe("Personas fuera de lista (pool común)", () => {
     await makeUser({ email: "sin.nombre@example.com" });
     await importPool(admin, "pool.secreto@example.com\npool.otro@example.com");
     await inviteGuest(juan, { email: "invitado.secreto@example.com", idempotencyKey: key() }, { syncNow: false });
-    await inviteFromPool(juan, { idempotencyKey: key() }, { syncNow: false });
+    await inviteFromPool(juan, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
     const board = await getPublicBoard();
     const json = JSON.stringify(board);
     expect(json).not.toMatch(/@/);
     expect(json).not.toContain(juan.id);
-    expect(board.graduates.find((g) => g.name === "Juan")).toMatchObject({ used: 1, remaining: 15 });
+    expect(board.graduates.find((g) => g.name === "Juan")).toMatchObject({ used: 2, remaining: 14 }); // 1 directa + 1 de la lista
     expect(board.poolAvailable).toBe(1);
     expect(board.graduates).toHaveLength(2); // el admin que no es egresado no aparece
   });
@@ -215,7 +250,7 @@ describe("Personas fuera de lista (pool común)", () => {
       ["laura@hotmail.com", "Juan", false],
     ]);
     // María invita a la primera (FIFO) y aparece como asignada.
-    await inviteFromPool(maria, { idempotencyKey: key() }, { syncNow: false });
+    await inviteFromPool(maria, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false });
     const after = await getPoolBoard(juan);
     expect(after.available.map((p) => p.email)).toEqual(["laura@hotmail.com"]);
     expect(after.assigned).toMatchObject([{ email: "pedro@gmail.com", invitedBy: "María" }]);
@@ -229,7 +264,7 @@ describe("Personas fuera de lista (pool común)", () => {
     await expect(removeOwnPoolPerson(maria, a.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await removeOwnPoolPerson(juan, a.id);
     expect((await getPoolBoard(juan)).available.map((p) => p.email)).toEqual(["b@example.com"]);
-    await inviteFromPool(maria, { idempotencyKey: key() }, { syncNow: false }); // asigna b
+    await inviteFromPool(maria, { poolPersonId: await oldestId(), idempotencyKey: key() }, { syncNow: false }); // asigna b
     await expect(removeOwnPoolPerson(juan, b.id)).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(getPoolBoard(null)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
   });

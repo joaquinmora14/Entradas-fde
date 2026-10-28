@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { BulkInviteForm } from "@/components/bulk-invite-form";
+import { CopyButton } from "@/components/copy-button";
 import { checkEmailsAction, inviteManyAction } from "@/app/actions/invite";
 import { Alert, Badge, Card, EmptyState, PageTitle, ProgressBar, Stat, SyncBadge, formatDateTime } from "@/components/ui";
 import { requireActor } from "@/lib/session";
@@ -61,8 +62,8 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Stat label="Personas disponibles en el pool común" value={d.poolAvailable} hint="No usan tus entradas individuales." tone="brand" />
-        <Stat label="Personas que invitaste desde el pool" value={d.poolInvitedByMe} hint={<Link className="font-medium text-brand-700 hover:underline" href="/pool">Ir a “Fuera de lista” →</Link>} />
+        <Stat label="Personas en “fuera de lista”" value={d.poolAvailable} hint="Podés elegir a quién darle una de tus entradas." tone="brand" />
+        <Stat label="Les diste entrada desde la lista" value={d.poolInvitedByMe} hint={<Link className="font-medium text-brand-700 hover:underline" href="/pool">Ir a “Fuera de lista” →</Link>} />
       </div>
 
       <Card>
@@ -76,12 +77,13 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
           <ul className="divide-y divide-slate-100">
             {[...direct, ...pool].map((i) => (
               <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">{i.email}</p>
+                <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
+                  <p className="select-all break-all font-medium text-slate-900">{i.email}</p>
                   <p className="text-xs text-slate-500">
-                    {formatDateTime(i.createdAt)} · {i.source === "pool" ? "Desde el pool" : "Entrada individual"}
+                    {formatDateTime(i.createdAt)} · {i.source === "pool" ? "Desde fuera de lista" : "Entrada individual"}
                   </p>
                 </div>
+                <CopyButton text={i.email} />
                 <SyncBadge sync={i.sync} />
               </li>
             ))}

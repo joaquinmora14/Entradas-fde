@@ -16,7 +16,7 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 |---|---|
 | Identidad de un invitado | Su **email normalizado** (minúsculas, sin espacios; en Gmail se ignoran puntos y `+sufijo`). Único en toda la app. |
 | Cupo individual | 16 entradas por egresado. Una invitación directa descuenta exactamente 1. |
-| Pool “Fuera de lista” | Lista común cargada por el admin. “Invitar a alguien del pool” asigna automáticamente a la **primera persona cargada que siga disponible (FIFO)**: es la regla más simple, predecible y justa. No usa entradas individuales. |
+| Pool “Fuera de lista” | Lista común que pueden ver y ampliar todos los egresados (y el admin), ordenada por antigüedad (los primeros cargados arriba). Cada egresado **elige a quién darle** una de sus entradas: dar una entrada desde la lista **descuenta 1 de sus 16**. Si dos eligen a la misma persona a la vez, solo uno se la queda. |
 | Fuente de verdad | PostgreSQL. Google Sheets es una copia operativa que se sincroniza sola. |
 | Planilla | Hoja **Invitados** con exactamente dos columnas: `Invitado` (email) e `Invitado por` (nombre del egresado). Una fila por invitado. |
 
@@ -28,7 +28,7 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 - **Cupo atómico:** un trigger descuenta la entrada en la **misma transacción** que crea la invitación y una restricción
   `CHECK (used <= initial_quota)` impide superar el cupo, incluso con solicitudes simultáneas. Si algo falla, no se
   descuenta nada.
-- **Pool atómico:** la persona se toma con `SELECT … FOR UPDATE SKIP LOCKED` y se marca asignada en la misma
+- **Pool atómico:** la persona elegida se bloquea con `SELECT … FOR UPDATE` y se marca asignada en la misma
   transacción que crea la invitación. Si la transacción falla, sigue disponible. Una persona asignada nunca vuelve a
   estar disponible (trigger) y no puede reimportarse (email único en el pool).
 - **Idempotencia:** cada envío de formulario lleva una clave única. Reintentar (doble toque, corte de red) devuelve
@@ -56,8 +56,8 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
    correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar N entradas**.
 3. En **Fuera de lista**: ver la lista común, **sumar gente** pegando la lista tal como llegó (se toman solo los mails;
    no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno mismo cargó mientras nadie lo haya
-   invitado, e **Invitar a alguien del pool**, que asigna automáticamente a la primera persona cargada (FIFO exacto por
-   orden de carga).
+   invitado, y **Darle mi entrada** a la persona que elija (usa 1 de sus 16 entradas). El mail queda a la vista con un botón
+   **Copiar** para mandárselo.
 
 La extracción de mails es determinística (reglas, no IA): es exacta, instantánea, gratuita y los datos de los
 invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes como `juan arroba gmail punto com`.

@@ -16,8 +16,9 @@ export type InviteOutcome =
   | { kind: "error"; message: string };
 
 export type PoolOutcome =
-  | { kind: "created"; invitationId: string; email: string; sync: SyncState; poolAvailable: number }
-  | { kind: "pool_empty" }
+  | { kind: "created"; invitationId: string; email: string; sync: SyncState; remaining: number }
+  | { kind: "unavailable" }
+  | { kind: "quota_exhausted" }
   | { kind: "validation"; message: string }
   | { kind: "error"; message: string };
 
@@ -26,7 +27,10 @@ type StoredInvite =
   | { kind: "duplicate"; email: string }
   | { kind: "quota_exhausted" };
 
-type StoredPool = { kind: "created"; invitationId: string; email: string } | { kind: "pool_empty" };
+type StoredPool =
+  | { kind: "created"; invitationId: string; email: string }
+  | { kind: "unavailable" }
+  | { kind: "quota_exhausted" };
 
 const TEMPORARY_ERROR = "No pudimos completar la operación por un error temporal. Intentá de nuevo.";
 
@@ -165,11 +169,13 @@ export async function inviteGuest(
 
 // ---------------------------------------------------------------------------
 // Invitación desde el pool común ("Personas fuera de lista")
-// Selección FIFO: la persona cargada hace más tiempo sale primero.
+// El egresado elige a una persona concreta de la lista y le da una de sus entradas.
 // ---------------------------------------------------------------------------
+const UUID_ANY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function inviteFromPool(
   actorIn: Actor | null,
-  input: { idempotencyKey: unknown; ip?: string | null },
+  input: { poolPersonId: unknown; idempotencyKey: unknown; ip?: string | null },
   opts: { syncNow?: boolean } = {},
 ): Promise<PoolOutcome> {
   let actor: Actor;
@@ -180,62 +186,66 @@ export async function inviteFromPool(
   } catch (err) {
     return { kind: "validation", message: (err as Error).message };
   }
+  const personId = typeof input.poolPersonId === "string" && UUID_ANY.test(input.poolPersonId) ? input.poolPersonId : null;
+  if (!personId) return { kind: "validation", message: "Elegí a una persona de la lista." };
 
   let stored: { replayed: boolean; value: StoredPool };
   try {
     stored = await withIdempotency<StoredPool>(actor.id, key, "pool_invite", async (c) => {
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const pick = await c.query<{ id: string; email: string; email_normalized: string }>(
-          `SELECT id, email, email_normalized FROM app.pool_people
-            WHERE status = 'available'
-            ORDER BY seq
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED`,
-        );
-        const person = pick.rows[0];
-        if (!person) return { kind: "pool_empty" };
-        await c.query("SELECT app.lock_email($1)", [person.email_normalized]);
-        const already = await c.query(
-          "SELECT 1 FROM app.invitations WHERE guest_email_normalized = $1 AND status = 'active'",
-          [person.email_normalized],
-        );
-        if (already.rowCount) {
-          // Fue invitada por otra vía mientras estaba en el pool: se retira y se prueba con la siguiente.
-          await c.query(
-            `UPDATE app.pool_people SET status = 'retired', retired_at = now(), retired_reason = 'already_invited'
-              WHERE id = $1`,
-            [person.id],
-          );
-          continue;
-        }
-        const ins = await c.query<{ id: string }>(
-          `INSERT INTO app.invitations (guest_email, guest_email_normalized, inviter_id, source)
-           VALUES ($1, $2, $3, 'pool') RETURNING id`,
-          [person.email, person.email_normalized, actor.id],
-        );
+      // Se bloquea la fila elegida: si dos egresados eligen a la misma persona, uno espera
+      // y después ve que ya no está disponible.
+      const pick = await c.query<{ id: string; email: string; email_normalized: string; status: string }>(
+        "SELECT id, email, email_normalized, status FROM app.pool_people WHERE id = $1 FOR UPDATE",
+        [personId],
+      );
+      const person = pick.rows[0];
+      if (!person || person.status !== "available") return { kind: "unavailable" };
+      await c.query("SELECT app.lock_email($1)", [person.email_normalized]);
+      const already = await c.query(
+        "SELECT 1 FROM app.invitations WHERE guest_email_normalized = $1 AND status = 'active'",
+        [person.email_normalized],
+      );
+      if (already.rowCount) {
+        // Fue invitada por otra vía mientras estaba en la lista: se retira.
         await c.query(
-          `UPDATE app.pool_people
-              SET status = 'assigned', assigned_to = $2, invitation_id = $3, assigned_at = now()
+          `UPDATE app.pool_people SET status = 'retired', retired_at = now(), retired_reason = 'already_invited'
             WHERE id = $1`,
-          [person.id, actor.id, ins.rows[0].id],
+          [person.id],
         );
-        await audit(
-          {
-            actorId: actor.id,
-            actorEmail: actor.email,
-            action: "pool_invite",
-            result: "success",
-            target: ins.rows[0].id,
-            ip: input.ip,
-            details: { guest: person.email_normalized, poolPersonId: person.id },
-          },
-          c,
-        );
-        return { kind: "created", invitationId: ins.rows[0].id, email: person.email };
+        return { kind: "unavailable" };
       }
-      throw new Error("Demasiados reintentos al asignar una persona del pool");
+      const q = await c.query<{ used: number; initial_quota: number }>(
+        "SELECT used, initial_quota FROM app.invitation_quotas WHERE user_id = $1 FOR UPDATE",
+        [actor.id],
+      );
+      if (!q.rows[0] || q.rows[0].used >= q.rows[0].initial_quota) return { kind: "quota_exhausted" };
+      const ins = await c.query<{ id: string }>(
+        `INSERT INTO app.invitations (guest_email, guest_email_normalized, inviter_id, source)
+         VALUES ($1, $2, $3, 'pool') RETURNING id`,
+        [person.email, person.email_normalized, actor.id],
+      );
+      await c.query(
+        `UPDATE app.pool_people
+            SET status = 'assigned', assigned_to = $2, invitation_id = $3, assigned_at = now()
+          WHERE id = $1`,
+        [person.id, actor.id, ins.rows[0].id],
+      );
+      await audit(
+        {
+          actorId: actor.id,
+          actorEmail: actor.email,
+          action: "pool_invite",
+          result: "success",
+          target: ins.rows[0].id,
+          ip: input.ip,
+          details: { guest: person.email_normalized, poolPersonId: person.id },
+        },
+        c,
+      );
+      return { kind: "created", invitationId: ins.rows[0].id, email: person.email };
     });
   } catch (err) {
+    if (pgRaisedCode(err) === "QUOTA_EXCEEDED") return { kind: "quota_exhausted" };
     if (isAppError(err)) return { kind: "validation", message: err.message };
     console.error("[pool_invite] error:", (err as Error).message);
     await auditSafe({ actorId: actor.id, actorEmail: actor.email, action: "pool_invite", result: "error", ip: input.ip, details: { error: (err as Error).message?.slice(0, 300) } });
@@ -245,13 +255,13 @@ export async function inviteFromPool(
   const v = stored.value;
   if (v.kind !== "created") {
     if (!stored.replayed) {
-      await auditSafe({ actorId: actor.id, actorEmail: actor.email, action: "pool_invite", result: "rejected", ip: input.ip, details: { reason: "pool_empty" } });
+      await auditSafe({ actorId: actor.id, actorEmail: actor.email, action: "pool_invite", result: "rejected", ip: input.ip, details: { reason: v.kind, poolPersonId: personId } });
     }
     return v;
   }
   if (!stored.replayed && opts.syncNow !== false) await syncAfterWrite("pool_invite");
-  const [sync, poolAvailable] = await Promise.all([invitationSyncState(v.invitationId), countPoolAvailable()]);
-  return { ...v, sync, poolAvailable };
+  const [sync, quota] = await Promise.all([invitationSyncState(v.invitationId), getQuota(actor.id)]);
+  return { ...v, sync, remaining: quota.remaining };
 }
 
 // ---------------------------------------------------------------------------

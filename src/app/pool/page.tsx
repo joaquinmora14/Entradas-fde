@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { PoolInviteButton } from "@/components/pool-button";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge, Card, EmptyState, PageTitle, Stat, SyncBadge, dangerButtonClass, formatDateTime, inputClass } from "@/components/ui";
-import { addToPoolAction, removeFromPoolAction } from "@/app/actions/invite";
+import { Badge, Card, EmptyState, PageTitle, Stat, SyncBadge, dangerButtonClass, formatDateTime } from "@/components/ui";
+import { addEmailsToPoolAction, checkPoolEmailsAction, removeFromPoolAction } from "@/app/actions/invite";
+import { PoolAddForm } from "@/components/pool-add-form";
 import { requireActor } from "@/lib/session";
 import { getDashboard } from "@/server/invitations";
 import { getPoolBoard } from "@/server/pool-admin";
@@ -43,19 +44,9 @@ export default async function PoolPage() {
           Pegá la lista tal como te llegó (nombre, mail, DNI…). Se toman solo los mails. No se agregan los que ya están en la
           lista ni los que ya tienen entrada. Sumar a alguien no le da entrada: queda disponible para que un egresado lo invite.
         </p>
-        <ActionForm action={addToPoolAction} className="mt-3" resetOnSuccess view="import-report">
-          <textarea
-            name="text"
-            rows={4}
-            required
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            className={inputClass}
-            placeholder={"Juan Pérez - juan@gmail.com - 40123456\nAna López, ana@hotmail.com, 41222333"}
-          />
-          <SubmitButton pendingText="Agregando…">Agregar a la lista</SubmitButton>
-        </ActionForm>
+        <div className="mt-3">
+          <PoolAddForm check={checkPoolEmailsAction} add={addEmailsToPoolAction} />
+        </div>
       </Card>
 
       <Card>

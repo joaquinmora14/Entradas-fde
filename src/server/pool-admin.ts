@@ -1,9 +1,9 @@
 import { audit } from "./audit";
 import { requireAdmin, requireGraduateOrAdmin, type Actor } from "./actor";
 import { getDb, pgRaisedCode, withTransaction } from "./db";
-import { parseCsv, MAX_IMPORT_ROWS } from "./csv";
+import { MAX_IMPORT_ROWS } from "./csv";
 import { parseEmail } from "./email";
-import { extractEmails } from "@/lib/extract-emails";
+import { analyzeEmailText } from "@/lib/extract-emails";
 import { AppError } from "./errors";
 
 export interface PoolImportReport {
@@ -11,6 +11,8 @@ export interface PoolImportReport {
   duplicates: Array<{ email: string; reason: string }>;
   invalid: Array<{ value: string; reason: string }>;
   conflicts: Array<{ email: string; reason: string }>;
+  /** Líneas sin mail (nombres, DNI…): se ignoran. */
+  ignoredLines?: number;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -26,35 +28,37 @@ const STATUS_LABEL: Record<string, string> = {
 export async function importPool(actorIn: Actor | null, text: string): Promise<PoolImportReport> {
   const actor = requireGraduateOrAdmin(actorIn);
   const limit = actor.isAdmin ? MAX_IMPORT_ROWS : 100;
-  const rows = parseCsv(text ?? "");
-  if (rows.length > limit) throw new AppError("VALIDATION", `Máximo ${limit} filas por vez.`);
-  const report: PoolImportReport = { added: [], duplicates: [], invalid: [], conflicts: [] };
+  const source = text ?? "";
+  if (source.split(/\r?\n/).length > limit * 5) throw new AppError("VALIDATION", "La lista es demasiado larga. Cargala en partes.");
+  const analysis = analyzeEmailText(source);
+  if (analysis.emails.length > limit) throw new AppError("VALIDATION", `Máximo ${limit} mails por vez.`);
+  const report: PoolImportReport = { added: [], duplicates: [], invalid: [], conflicts: [], ignoredLines: analysis.ignoredLines };
   const seen = new Set<string>();
   const candidates: Array<{ original: string; normalized: string }> = [];
 
-  // Cada fila puede traer nombre, mail, DNI, etc.: se toman solo los mails (puede haber varios por fila).
-  rows.forEach((cells, idx) => {
-    const line = cells.join(" ");
-    const found = extractEmails(line);
-    if (found.length === 0) {
-      if (idx === 0) return; // encabezado
-      report.invalid.push({ value: line.slice(0, 120), reason: "No se encontró un mail válido" });
-      return;
+  // Se toman solo los mails; las líneas sin mail (nombres, DNI…) se ignoran y no son errores.
+  for (const u of analysis.unreadable) {
+    report.invalid.push({
+      value: u.text,
+      reason: u.suggestion ? `No es un mail válido. ¿Quisiste decir ${u.suggestion}?` : "No es un mail válido",
+    });
+  }
+  for (const email of analysis.repeated) {
+    report.duplicates.push({ email, reason: "Repetido dentro de la lista" });
+  }
+  for (const { email } of analysis.emails) {
+    const p = parseEmail(email);
+    if (!p.ok) {
+      report.invalid.push({ value: email, reason: p.reason });
+      continue;
     }
-    for (const { email } of found) {
-      const p = parseEmail(email);
-      if (!p.ok) {
-        report.invalid.push({ value: email, reason: p.reason });
-        continue;
-      }
-      if (seen.has(p.normalized)) {
-        report.duplicates.push({ email: p.original, reason: "Repetido dentro de la lista" });
-        continue;
-      }
-      seen.add(p.normalized);
-      candidates.push(p);
+    if (seen.has(p.normalized)) {
+      report.duplicates.push({ email: p.original, reason: "Repetido dentro de la lista" });
+      continue;
     }
-  });
+    seen.add(p.normalized);
+    candidates.push(p);
+  }
 
   if (candidates.length) {
     await withTransaction(async (c) => {
@@ -107,6 +111,8 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
             invalid: report.invalid.length,
             conflicts: report.conflicts.length,
             addedEmails: report.added.slice(0, 500),
+            invalidSamples: report.invalid.slice(0, 30).map((i) => i.value),
+            ignoredLines: report.ignoredLines ?? 0,
           },
         },
         c,
@@ -118,7 +124,14 @@ export async function importPool(actorIn: Actor | null, text: string): Promise<P
       actorEmail: actor.email,
       action: "pool_import",
       result: "rejected",
-      details: { added: 0, duplicates: report.duplicates.length, invalid: report.invalid.length, conflicts: 0 },
+      details: {
+        added: 0,
+        duplicates: report.duplicates.length,
+        invalid: report.invalid.length,
+        conflicts: 0,
+        invalidSamples: report.invalid.slice(0, 30).map((i) => i.value),
+        ignoredLines: report.ignoredLines ?? 0,
+      },
     });
   }
   return report;
@@ -273,4 +286,67 @@ export async function removeOwnPoolPerson(actorIn: Actor | null, id: string): Pr
       c,
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Revisión previa de una lista antes de sumarla al pool (no modifica nada)
+// ---------------------------------------------------------------------------
+export type PoolCheckStatus = "ok" | "invalid" | "repeated" | "in_pool" | "has_entry" | "graduate";
+
+export interface PoolCheckItem {
+  email: string;
+  status: PoolCheckStatus;
+  message?: string;
+}
+
+export async function checkPoolEmails(actorIn: Actor | null, emails: unknown): Promise<{ items: PoolCheckItem[] }> {
+  const actor = requireGraduateOrAdmin(actorIn);
+  const list = Array.isArray(emails) ? emails.slice(0, 200).map((e) => String(e ?? "")) : [];
+  const items: Array<PoolCheckItem & { normalized?: string }> = [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const p = parseEmail(raw);
+    if (!p.ok) {
+      items.push({ email: raw, status: "invalid", message: p.reason });
+    } else if (seen.has(p.normalized)) {
+      items.push({ email: p.original, status: "repeated" });
+    } else {
+      seen.add(p.normalized);
+      items.push({ email: p.original, normalized: p.normalized, status: "ok" });
+    }
+  }
+  const norms = items.filter((i) => i.status === "ok").map((i) => i.normalized!);
+  if (norms.length) {
+    const db = getDb();
+    const [pool, inv, grads] = await Promise.all([
+      db.query<{ email: string; status: string }>(
+        "SELECT email_normalized AS email, status FROM app.pool_people WHERE email_normalized = ANY($1::text[])",
+        [norms],
+      ),
+      db.query<{ email: string; label: string }>(
+        `SELECT i.guest_email_normalized AS email, COALESCE(NULLIF(u.display_name, ''), u.email) AS label
+           FROM app.invitations i JOIN app.users u ON u.id = i.inviter_id
+          WHERE i.status = 'active' AND i.guest_email_normalized = ANY($1::text[])`,
+        [norms],
+      ),
+      db.query<{ email: string }>("SELECT email FROM app.users WHERE is_graduate AND email = ANY($1::text[])", [norms]),
+    ]);
+    const poolBy = new Map(pool.rows.map((r) => [r.email, r.status]));
+    const invBy = new Map(inv.rows.map((r) => [r.email, r.label]));
+    const gradSet = new Set(grads.rows.map((r) => r.email));
+    for (const it of items) {
+      if (it.status !== "ok") continue;
+      const n = it.normalized!;
+      if (invBy.has(n)) {
+        it.status = "has_entry";
+        if (actor.isAdmin) it.message = `Anotado por ${invBy.get(n)}`;
+      } else if (gradSet.has(n)) {
+        it.status = "graduate";
+      } else if (poolBy.has(n)) {
+        it.status = "in_pool";
+        it.message = `Ya está en la lista (${STATUS_LABEL[poolBy.get(n)!] ?? poolBy.get(n)})`;
+      }
+    }
+  }
+  return { items: items.map(({ email, status, message }) => (message ? { email, status, message } : { email, status })) };
 }

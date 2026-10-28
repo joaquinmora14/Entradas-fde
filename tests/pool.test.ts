@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDb } from "@/server/db";
 import { inviteFromPool, inviteGuest, getDashboard } from "@/server/invitations";
-import { getPoolBoard, importPool, listPool, removeOwnPoolPerson, updatePoolPerson } from "@/server/pool-admin";
+import { checkPoolEmails, getPoolBoard, importPool, listPool, removeOwnPoolPerson, updatePoolPerson } from "@/server/pool-admin";
 import { cancelInvitation } from "@/server/admin";
 import { MemorySheetsClient } from "@/server/sheets/memory";
 import { makeAllPendingDue, runSheetSync, setSheetsClientForTests } from "@/server/sheets/sync";
@@ -21,7 +21,9 @@ describe("Personas fuera de lista (pool común)", () => {
     );
     expect(report.added).toEqual(["uno@example.com", "dos@example.com", "tres@example.com"]);
     expect(report.duplicates).toHaveLength(1);
-    expect(report.invalid).toHaveLength(1);
+    // "no-es-email" no tiene @: se ignora como cualquier línea sin mail (nombre, DNI…).
+    expect(report.invalid).toHaveLength(0);
+    expect(report.ignoredLines).toBe(2);
     // Una segunda importación no vuelve a agregar a nadie.
     const again = await importPool(admin, "uno@example.com\ncuatro@example.com");
     expect(again.added).toEqual(["cuatro@example.com"]);
@@ -36,7 +38,9 @@ describe("Personas fuera de lista (pool común)", () => {
       "Nombre,Mail,DNI\nJuan Pérez,juan.p@gmail.com,40123456\nAna López,ANA@hotmail.com,41222333\nSin mail,,42000000\nPedro pedro@yahoo.com y su hermana sofi@yahoo.com",
     );
     expect(report.added).toEqual(["juan.p@gmail.com", "ana@hotmail.com", "pedro@yahoo.com", "sofi@yahoo.com"]);
-    expect(report.invalid).toHaveLength(1);
+    // Las líneas sin mail (encabezado, "Sin mail") se ignoran: no son errores.
+    expect(report.invalid).toHaveLength(0);
+    expect(report.ignoredLines).toBe(2);
   });
 
   it("pool 3: no se puede agregar a alguien que ya fue invitado normalmente", async () => {
@@ -228,5 +232,29 @@ describe("Personas fuera de lista (pool común)", () => {
     await inviteFromPool(maria, { idempotencyKey: key() }, { syncNow: false }); // asigna b
     await expect(removeOwnPoolPerson(juan, b.id)).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(getPoolBoard(null)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
+  it("con una lista tipo formulario (un dato por renglón) toma solo los mails y no marca errores", async () => {
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const r = await importPool(
+      juan,
+      "Nombre y apellido: Lucila Viola\nDNI: 45.123.456\nMail: lucila.violaa14@gmail.com\n\nNombre y apellido: Ema Gómez\nDNI: 46.000.111\nMail: Emahg2010@Gmail.com\nRaro: maria@gmail",
+    );
+    expect(r.added).toEqual(["lucila.violaa14@gmail.com", "emahg2010@gmail.com"]);
+    expect(r.ignoredLines).toBe(4);
+    expect(r.invalid).toEqual([{ value: "maria@gmail", reason: "No es un mail válido. ¿Quisiste decir maria@gmail.com?" }]);
+  });
+
+  it("revisa una lista antes de sumarla al pool sin modificar nada", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    await importPool(admin, "en.pool@example.com");
+    await inviteGuest(juan, { email: "con.entrada@example.com", idempotencyKey: key() }, { syncNow: false });
+    const r = await checkPoolEmails(juan, ["nuevo@example.com", "en.pool@example.com", "con.entrada@example.com", "juan@example.com", "Nuevo@Example.com", "mal"]);
+    expect(r.items.map((i) => i.status)).toEqual(["ok", "in_pool", "has_entry", "graduate", "repeated", "invalid"]);
+    expect(r.items[2].message).toBeUndefined(); // al egresado no se le dice quién la anotó
+    const asAdmin = await checkPoolEmails(admin, ["con.entrada@example.com"]);
+    expect(asAdmin.items[0].message).toBe("Anotado por Juan");
+    expect(await available()).toBe(1);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractEmails } from "@/lib/extract-emails";
+import { analyzeEmailText, extractEmails } from "@/lib/extract-emails";
 import { checkGuestEmails, inviteMany } from "@/server/invitations";
 import { getGraduateActor } from "@/server/admin";
 import { listAuditLogs } from "@/server/admin";
@@ -29,6 +29,28 @@ sin mail: Carla 39000111`;
     expect(a).toEqual({ email: "x@gmail.con", suggestion: "x@gmail.com" });
     expect(b.suggestion).toBe("y@hotmail.com");
     expect(c.suggestion).toBeUndefined();
+  });
+
+  it("no recorta mails con tilde ni toma el asterisco de WhatsApp", () => {
+    const a = analyzeEmailText("Lucía Pérez lucía.perez@gmail.com\n*juan.perez@gmail.com*\nmuñoz@gmail.com");
+    expect(a.emails.map((e) => e.email)).toEqual(["juan.perez@gmail.com"]);
+    expect(a.unreadable).toEqual([
+      { text: "lucía.perez@gmail.com", suggestion: "lucia.perez@gmail.com" },
+      { text: "muñoz@gmail.com", suggestion: "munoz@gmail.com" },
+    ]);
+  });
+
+  it("separa mails pegados a otro texto y repara los incompletos", () => {
+    const a = analyzeEmailText("juan@gmail.comDNI 40123456\npedro@gmail.com40123456\nmaria@gmail\njose@gmail,com\nraro@@hotmail.com");
+    expect(a.emails.map((e) => e.email)).toEqual(["juan@gmail.com", "pedro@gmail.com"]);
+    expect(a.unreadable.map((u) => u.suggestion)).toEqual(["maria@gmail.com", "jose@gmail.com", "raro@hotmail.com"]);
+  });
+
+  it("las líneas sin mail se cuentan como ignoradas, no como errores", () => {
+    const a = analyzeEmailText("Nombre: Lucila\nDNI: 45.123.456\nMail: lucila@gmail.com\n\nNombre: Ema\nMail: ema@hotmail.com");
+    expect(a.emails.map((e) => e.email)).toEqual(["lucila@gmail.com", "ema@hotmail.com"]);
+    expect(a.unreadable).toEqual([]);
+    expect(a.ignoredLines).toBe(3);
   });
 
   it("no devuelve nada si el texto no tiene mails", () => {

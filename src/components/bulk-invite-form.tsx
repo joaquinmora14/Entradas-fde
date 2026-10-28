@@ -2,7 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { extractEmails, MAX_EMAILS_PER_BATCH, type ExtractedEmail } from "@/lib/extract-emails";
+import { analyzeEmailText, MAX_EMAILS_PER_BATCH, type ExtractedEmail, type UnreadableEmail } from "@/lib/extract-emails";
+import { UnreadableBox } from "./unreadable-box";
 import type { BatchItemResult, CheckedEmail, CheckStatus } from "@/server/invitations";
 import { Alert, Badge, buttonClass, cx, inputClass, secondaryButtonClass } from "./ui";
 
@@ -54,6 +55,8 @@ export function BulkInviteForm({
   const [left, setLeft] = useState(remaining);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<BatchItemResult[] | null>(null);
+  const [unreadable, setUnreadable] = useState<UnreadableEmail[]>([]);
+  const [ignored, setIgnored] = useState(0);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
   // Una clave de idempotencia por mail: se reutiliza si hay que reintentar, así nunca se duplica.
@@ -68,12 +71,14 @@ export function BulkInviteForm({
     return k;
   };
 
-  const runCheck = (emails: ExtractedEmail[]) => {
+  const runCheck = (emails: ExtractedEmail[], pendingUnreadable = unreadable) => {
     setError("");
     setResults(null);
     if (emails.length === 0) {
       setChecked(null);
-      setError("No encontramos ningún mail en el texto. Revisá que estén completos (ej.: nombre@gmail.com).");
+      if (pendingUnreadable.length === 0) {
+        setError("No encontramos ningún mail en el texto. Revisá que estén completos (ej.: nombre@gmail.com).");
+      }
       return;
     }
     if (emails.length > MAX_EMAILS_PER_BATCH) {
@@ -94,7 +99,22 @@ export function BulkInviteForm({
     });
   };
 
-  const onReview = () => runCheck(extractEmails(text));
+  const onReview = () => {
+    const a = analyzeEmailText(text);
+    setUnreadable(a.unreadable);
+    setIgnored(a.ignoredLines);
+    runCheck(a.emails, a.unreadable);
+  };
+
+  const applyUnreadable = (u: UnreadableEmail) => {
+    if (!u.suggestion) return;
+    const sug = u.suggestion;
+    setText((t) => (t.includes(u.text) ? t.split(u.text).join(sug) : `${t}\n${sug}`));
+    const rest = unreadable.filter((x) => x.text !== u.text);
+    setUnreadable(rest);
+    const base = checked ? extracted : [];
+    runCheck(base.some((e) => e.email === sug) ? base : [...base, { email: sug }], rest);
+  };
 
   const applySuggestion = (from: string, to: string) => {
     const next = extracted.map((e) => (e.email === from ? { email: to } : e));
@@ -121,6 +141,8 @@ export function BulkInviteForm({
           setText("");
           setChecked(null);
           setExtracted([]);
+          setUnreadable([]);
+          setIgnored(0);
         }
         router.refresh();
       } catch {
@@ -142,6 +164,7 @@ export function BulkInviteForm({
         onChange={(e) => {
           setText(e.target.value);
           setChecked(null);
+          setUnreadable([]);
         }}
         rows={4}
         autoCapitalize="none"
@@ -157,6 +180,9 @@ export function BulkInviteForm({
       ) : null}
 
       {error ? <Alert tone="error">{error}</Alert> : null}
+      {unreadable.length || (checked && ignored) ? (
+        <UnreadableBox items={unreadable} ignoredLines={checked ? ignored : 0} onUse={applyUnreadable} />
+      ) : null}
 
       {checked ? (
         <div className="space-y-3 rounded-xl border border-slate-200 p-3">

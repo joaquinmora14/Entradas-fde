@@ -72,6 +72,40 @@ describe("Registro y autenticación", () => {
     await expect(authenticate({ email: "ya@example.com", password: PASSWORD })).resolves.toMatchObject({ email: "ya@example.com" });
   });
 
+  it("crear cuenta pide solo mail y contraseña; después entra con eso", async () => {
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    await importGraduates(admin, "email,nombre\nnueva@example.com,Ana Nueva");
+    const a = await registerAccount({ email: "Nueva@Example.com", password: "una-clave-larga" });
+    expect(a).toMatchObject({ email: "nueva@example.com", displayName: "Ana Nueva", isGraduate: true });
+    await expect(authenticate({ email: "nueva@example.com", password: "una-clave-larga" })).resolves.toMatchObject({ id: a.id });
+    // Una segunda vez avisa que ya creó la cuenta.
+    await expect(registerAccount({ email: "nueva@example.com", password: "otra-clave-larga" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("Ya creaste tu cuenta"),
+    });
+  });
+
+  it("si intenta ingresar sin haber creado la cuenta, le dice que la cree con el mail que le dio a Juli", async () => {
+    await makeUser({ email: "pendiente@example.com", status: "pending", name: "Pendiente" });
+    for (const email of ["pendiente@example.com", "Pendiente@Example.com", "no.esta@example.com"]) {
+      await expect(authenticate({ email, password: "cualquier-cosa" })).rejects.toMatchObject({
+        code: "NOT_FOUND",
+        message: expect.stringContaining("el mail que le diste a Juli"),
+      });
+    }
+    // Con cuenta creada y contraseña equivocada, el mensaje es otro.
+    await makeUser({ email: "activa@example.com" });
+    await expect(authenticate({ email: "activa@example.com", password: "equivocada" })).rejects.toMatchObject({
+      code: "VALIDATION",
+      message: expect.stringContaining("contraseña no es correcta"),
+    });
+    // Un mail que no está en la lista no puede crear cuenta, y el mensaje lo explica.
+    await expect(registerAccount({ email: "no.esta@example.com", password: "una-clave-larga" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: expect.stringContaining("le diste a Juli"),
+    });
+  });
+
   it("bloquea por exceso de intentos fallidos", async () => {
     await makeUser({ email: "bloq@example.com" });
     for (let i = 0; i < 8; i++) {

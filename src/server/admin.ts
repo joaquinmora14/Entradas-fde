@@ -556,7 +556,7 @@ export async function getGraduateDetail(adminIn: Actor | null, userId: string) {
   const { rows } = await getDb().query(
     `SELECT id, group_id, guest_email, source, status, created_at, sync_status, cancel_reason
        FROM app.invitations WHERE inviter_id = $1
-      ORDER BY status, created_at DESC, id`,
+      ORDER BY status, created_at, id`,
     [userId],
   );
   return {

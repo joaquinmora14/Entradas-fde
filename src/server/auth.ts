@@ -113,9 +113,11 @@ function sameHash(a: string, b: string): boolean {
 
 export interface RegisterInput {
   email: unknown;
-  displayName: unknown;
+  /** Opcional: el nombre ya viene de la lista de egresados. */
+  displayName?: unknown;
   password: unknown;
-  passwordConfirm: unknown;
+  /** Opcional: el formulario de registro pide la contraseña una sola vez (con botón "Mostrar"). */
+  passwordConfirm?: unknown;
   registrationCode?: unknown;
   ip?: string | null;
 }
@@ -125,7 +127,7 @@ export async function registerAccount(input: RegisterInput): Promise<Actor> {
   if (!parsed.ok) throw new AppError("VALIDATION", parsed.reason);
   const email = parsed.normalized;
   const password = validatePassword(input.password);
-  if (input.password !== input.passwordConfirm) {
+  if (input.passwordConfirm !== undefined && input.password !== input.passwordConfirm) {
     throw new AppError("VALIDATION", "Las contraseñas no coinciden.");
   }
 
@@ -159,16 +161,16 @@ export async function registerAccount(input: RegisterInput): Promise<Actor> {
       if (!user) {
         throw new AppError(
           "FORBIDDEN",
-          "Tu email no está en la lista de egresados autorizados. Si es un error, avisale al administrador.",
+          "Ese mail no está en la lista de egresados. Tiene que ser el mismo mail que le diste a Juli. Si es un error, avisale a Juli.",
         );
       }
       if (user.status === "disabled") {
         throw new AppError("FORBIDDEN", "Esta cuenta está deshabilitada. Contactá al administrador.");
       }
       if (user.status === "active" || user.password_hash) {
-        throw new AppError("CONFLICT", "Ya existe una cuenta con este email. Iniciá sesión o recuperá tu acceso.");
+        throw new AppError("CONFLICT", "Ya creaste tu cuenta con este mail. Ingresá con tu contraseña.");
       }
-      const displayName = validateDisplayName(input.displayName, !user.display_name) ?? user.display_name;
+      const displayName = validateDisplayName(input.displayName, false) ?? user.display_name;
       const upd = await c.query<UserRow>(
         `UPDATE app.users
             SET password_hash = $2, display_name = $3, status = 'active',
@@ -210,6 +212,9 @@ async function tooManyFailures(email: string, ip: string | null | undefined): Pr
   return r.by_email >= MAX_FAILED_LOGINS_PER_EMAIL || r.by_ip >= MAX_FAILED_LOGINS_PER_IP;
 }
 
+export const NOT_REGISTERED =
+  "Todavía no creaste tu cuenta con ese mail. Primero tenés que crear tu cuenta con el mail que le diste a Juli: ponés tu mail, elegís una contraseña y entrás.";
+
 export async function authenticate(input: { email: unknown; password: unknown; ip?: string | null }): Promise<Actor> {
   const parsed = parseEmail(input.email);
   const password = typeof input.password === "string" ? input.password : "";
@@ -240,7 +245,9 @@ export async function authenticate(input: { email: unknown; password: unknown; i
     if (user && ok && user.status === "disabled") {
       throw new AppError("FORBIDDEN", "Esta cuenta está deshabilitada. Contactá al administrador.");
     }
-    throw new AppError("VALIDATION", "Email o contraseña incorrectos.");
+    // Nunca creó su cuenta (no eligió contraseña) o el mail no tiene cuenta: primero tiene que crearla.
+    if (!user || (!user.password_hash && user.status === "pending")) throw new AppError("NOT_FOUND", NOT_REGISTERED);
+    throw new AppError("VALIDATION", "La contraseña no es correcta. Si no te la acordás, tocá “Olvidé mi contraseña”.");
   }
 
   let actor = toActor(user);

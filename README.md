@@ -53,7 +53,10 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 ## Uso
 
 ### Egresados
-1. Entrar a https://entradas-fde.vercel.app/registro con el email que figura en la lista autorizada y crear la contraseña.
+1. **Primera vez:** en https://entradas-fde.vercel.app/registro poner el mail que le dieron a Juli (el de la lista
+   autorizada) y elegir una contraseña (con botón “Mostrar”). Entra directo a su panel. Las próximas veces ingresa en
+   `/login` con ese mail y esa contraseña. Si intenta ingresar sin haber creado la cuenta, la app le dice que primero
+   la cree con el mail que le dio a Juli y le ofrece un botón con el mail ya escrito.
 2. En **Mis entradas**: pegar el mensaje que les mandaron (nombre, mail, DNI… en cualquier formato), un grupo por vez →
    **Revisar mails**. La app extrae solo los mails, avisa cuáles ya tienen entrada, cuáles están repetidos y sugiere
    correcciones de tipeo (`gmail.con` → `gmail.com`). Después **Anotar el grupo**: se anotan todos juntos. En “Mails que

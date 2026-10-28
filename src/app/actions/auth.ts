@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { authenticate, registerAccount, requestPasswordReset, resetPassword } from "@/server/auth";
-import { publicMessage } from "@/server/errors";
+import { isAppError, publicMessage } from "@/server/errors";
 import { baseUrl, clientIp, endSession, startSession } from "@/lib/session";
 import type { FormState } from "@/lib/form-state";
 
@@ -17,25 +17,32 @@ export async function loginAction(_prev: FormState, form: FormData): Promise<For
     const actor = await authenticate({ email, password: form.get("password"), ip: await clientIp() });
     await startSession(actor.id);
   } catch (err) {
-    return { ok: false, message: publicMessage(err), fields: { email: String(email ?? "") } };
+    // Si nunca creó su cuenta, el formulario le muestra el botón para crearla con ese mail.
+    const notRegistered = isAppError(err) && err.code === "NOT_FOUND";
+    return {
+      ok: false,
+      message: publicMessage(err),
+      fields: { email: String(email ?? "") },
+      data: notRegistered ? { needsRegister: true } : undefined,
+    };
   }
   redirect(safeNext(form.get("next")));
 }
 
 export async function registerAction(_prev: FormState, form: FormData): Promise<FormState> {
-  const fields = { email: String(form.get("email") ?? ""), displayName: String(form.get("displayName") ?? "") };
+  const fields = { email: String(form.get("email") ?? "") };
   try {
     const actor = await registerAccount({
       email: form.get("email"),
-      displayName: form.get("displayName"),
       password: form.get("password"),
-      passwordConfirm: form.get("passwordConfirm"),
       registrationCode: form.get("registrationCode"),
       ip: await clientIp(),
     });
     await startSession(actor.id);
   } catch (err) {
-    return { ok: false, message: publicMessage(err), fields };
+    // Si ya tenía cuenta, el formulario le muestra el botón para ingresar con ese mail.
+    const alreadyRegistered = isAppError(err) && err.code === "CONFLICT";
+    return { ok: false, message: publicMessage(err), fields, data: alreadyRegistered ? { alreadyRegistered: true } : undefined };
   }
   redirect("/panel?bienvenida=1");
 }

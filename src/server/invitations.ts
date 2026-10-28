@@ -340,7 +340,7 @@ export async function listMyInvitations(actor: Actor): Promise<MyInvitation[]> {
   }>(
     `SELECT id, group_id, guest_email, source, created_at, sync_status FROM app.invitations
       WHERE inviter_id = $1 AND status = 'active'
-      ORDER BY created_at DESC, id`,
+      ORDER BY created_at, id`,
     [actor.id],
   );
   return rows.map((r) => ({
@@ -361,7 +361,10 @@ export interface InvitationGroup<T extends { groupId: string; createdAt: string 
 
 /**
  * Agrupa invitaciones por grupo: los grupos más recientes primero y, dentro de cada grupo,
- * los mails en el orden en que se anotaron.
+ * los mails en el orden en que se anotaron. La lista tiene que venir en orden de anotación
+ * (ORDER BY created_at, id en la base, con precisión de microsegundos): ese orden se respeta
+ * tal cual dentro de cada grupo, porque en JavaScript la hora se redondea a milisegundos y
+ * dos mails del mismo grupo pueden empatar.
  */
 export function groupInvitations<T extends { groupId: string; createdAt: string }>(list: T[]): InvitationGroup<T>[] {
   const map = new Map<string, InvitationGroup<T>>();
@@ -375,8 +378,7 @@ export function groupInvitations<T extends { groupId: string; createdAt: string 
     }
   }
   const groups = [...map.values()];
-  for (const g of groups) g.items.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
-  return groups.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  return groups.reverse().sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
 }
 
 export async function countPoolAvailable(): Promise<number> {

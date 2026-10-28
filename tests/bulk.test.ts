@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeEmailText, extractEmails } from "@/lib/extract-emails";
 import { checkGuestEmails, getDashboard, inviteGroup } from "@/server/invitations";
+import { getDb } from "@/server/db";
 import { getGraduateActor } from "@/server/admin";
 import { listAuditLogs } from "@/server/admin";
 import { count, key, makeUser, quotaOf } from "./support/factory";
@@ -94,6 +95,20 @@ describe("Anotar un grupo (la lista pegada va junta)", () => {
     // Otro grupo después: aparece primero (los más recientes arriba).
     await inviteGroup(juan, { emails: ["otro@example.com"], idempotencyKey: key() }, { syncNow: false });
     expect((await getDashboard(juan)).groups.map((g) => g.items.length)).toEqual([1, 3]);
+  });
+
+  it("dentro de un grupo el orden es el de anotación aunque los mails empaten en el mismo milisegundo", async () => {
+    const juan = await makeUser({ email: "juan@example.com" });
+    // Tres mails del mismo grupo anotados con microsegundos de diferencia (el mismo milisegundo).
+    await getDb().query(
+      `INSERT INTO app.invitations (guest_email, guest_email_normalized, inviter_id, source, group_id, created_at)
+       VALUES ('primero@example.com', 'primero@example.com', $1, 'direct', '00000000-0000-4000-8000-0000000000aa', '2026-10-28 12:00:00.123001+00'),
+              ('segundo@example.com', 'segundo@example.com', $1, 'direct', '00000000-0000-4000-8000-0000000000aa', '2026-10-28 12:00:00.123002+00'),
+              ('tercero@example.com', 'tercero@example.com', $1, 'direct', '00000000-0000-4000-8000-0000000000aa', '2026-10-28 12:00:00.123003+00')`,
+      [juan.id],
+    );
+    const d = await getDashboard(juan);
+    expect(d.groups.map((g) => g.items.map((i) => i.email))).toEqual([["primero@example.com", "segundo@example.com", "tercero@example.com"]]);
   });
 
   it("si no alcanzan las entradas para todo el grupo, no se anota a nadie", async () => {

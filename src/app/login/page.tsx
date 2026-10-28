@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthShell } from "@/components/auth-shell";
 import { LoginForm } from "@/components/auth-forms";
@@ -7,25 +8,29 @@ import { getCurrentActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Ingresar" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; email?: string }> }) {
   if (await getCurrentActor()) redirect("/");
-  const { next } = await searchParams;
+  const { next, email } = await searchParams;
   return (
     <AuthShell
       title="Invitaciones de la fiesta"
-      subtitle="Ingresá para registrar a tus invitados."
+      subtitle="Ingresá con tu mail y tu contraseña."
       footer={
         <>
-          <p>
-            ¿Primera vez? <TextLink href="/registro">Creá tu cuenta</TextLink>
-          </p>
           <p>
             <TextLink href="/recuperar">Olvidé mi contraseña</TextLink> · <TextLink href="/cupos">Ver cupos</TextLink>
           </p>
         </>
       }
     >
-      <LoginForm next={next} />
+      <Link
+        href="/registro"
+        className="mb-5 block rounded-xl border-2 border-brand-500 bg-brand-50 px-4 py-3 text-center text-brand-700 hover:bg-brand-100"
+      >
+        <span className="block font-bold">¿Es tu primera vez? Creá tu cuenta →</span>
+        <span className="block text-sm">Con el mail que le diste a Juli. Es una sola vez.</span>
+      </Link>
+      <LoginForm next={next} email={typeof email === "string" ? email.slice(0, 254) : undefined} />
     </AuthShell>
   );
 }

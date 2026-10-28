@@ -42,7 +42,7 @@ export default async function GraduateDetailPage({ params }: { params: Promise<{
   }
   const name = d.user.displayName ?? d.user.email;
   const active = d.invitations.filter((i) => i.status === "active");
-  const cancelled = d.invitations.filter((i) => i.status === "cancelled");
+  const cancelled = d.invitations.filter((i) => i.status === "cancelled").reverse(); // las más recientes primero
   return (
     <div className="space-y-5">
       <Link href="/admin/egresados" className="text-sm font-medium text-brand-700 hover:underline">

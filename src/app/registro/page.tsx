@@ -8,20 +8,21 @@ import { getRegistrationCodeHash } from "@/server/auth";
 
 export const metadata: Metadata = { title: "Crear cuenta" };
 
-export default async function RegisterPage() {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   if (await getCurrentActor()) redirect("/");
+  const { email } = await searchParams;
   const needsCode = Boolean(await getRegistrationCodeHash());
   return (
     <AuthShell
-      title="Crear cuenta"
-      subtitle="Solo pueden registrarse los egresados habilitados por la organización."
+      title="Crear tu cuenta"
+      subtitle="Es una sola vez: poné el mail que le diste a Juli y elegí una contraseña. Después entrás directo."
       footer={
         <p>
-          ¿Ya tenés cuenta? <TextLink href="/login">Ingresá</TextLink>
+          ¿Ya creaste tu cuenta? <TextLink href="/login">Ingresá</TextLink>
         </p>
       }
     >
-      <RegisterForm needsCode={needsCode} />
+      <RegisterForm needsCode={needsCode} email={typeof email === "string" ? email.slice(0, 254) : undefined} />
     </AuthShell>
   );
 }

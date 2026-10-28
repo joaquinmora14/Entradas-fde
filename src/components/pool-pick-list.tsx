@@ -37,6 +37,12 @@ export function PoolPickList({
   const [mustCopy, setMustCopy] = useState<string[] | null>(null);
   // Una clave por grupo: si se corta la conexión y se reintenta, no se gastan otras entradas.
   const keys = useRef(new Map<string, string>());
+  // Filtro por tamaño de grupo (null = todos). Los tamaños van de menor a mayor.
+  const [size, setSize] = useState<number | null>(null);
+  const sizes = [...new Set(groups.map((g) => g.people.length))].sort((a, b) => a - b);
+  // Si el tamaño elegido ya no existe (p. ej. se dio el último grupo de ese tamaño), se muestran todos.
+  const activeSize = size !== null && sizes.includes(size) ? size : null;
+  const shown = groups.map((g, idx) => ({ g, pos: idx + 1 })).filter(({ g }) => activeSize === null || g.people.length === activeSize);
 
   const give = (g: PoolGroup) => {
     const n = g.people.length;
@@ -114,14 +120,27 @@ export function PoolPickList({
       {groups.length === 0 ? (
         <EmptyState title="No hay nadie disponible en la lista">Podés sumar gente arriba.</EmptyState>
       ) : (
+        <>
+        <div role="group" aria-label="Filtrar por tamaño de grupo" className="flex flex-wrap gap-2">
+          <FilterChip active={activeSize === null} onClick={() => setSize(null)} label="Todos" count={groups.length} />
+          {sizes.map((n) => (
+            <FilterChip
+              key={n}
+              active={activeSize === n}
+              onClick={() => setSize(n)}
+              label={n === 1 ? "1 persona" : `${n} personas`}
+              count={groups.filter((g) => g.people.length === n).length}
+            />
+          ))}
+        </div>
         <ol className="space-y-3">
-          {groups.map((g, idx) => {
+          {shown.map(({ g, pos }) => {
             const n = g.people.length;
             const short = n > remaining;
             return (
               <li key={g.id} data-testid="pool-group" className="rounded-2xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold tabular-nums text-slate-400">{idx + 1}.</span>
+                  <span className="text-xs font-semibold tabular-nums text-slate-400">{pos}.</span>
                   <Badge tone={n > 1 ? "brand" : "slate"}>{n === 1 ? "1 persona" : `Grupo de ${n} · van juntos`}</Badge>
                   <span className="text-xs text-slate-500">
                     {g.mine ? "Lo cargaste vos" : g.addedBy ? `Cargado por ${g.addedBy}` : "Cargado"} · {formatDateTime(g.addedAt)}
@@ -159,7 +178,25 @@ export function PoolPickList({
             );
           })}
         </ol>
+        </>
       )}
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cx(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold",
+        active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+      )}
+    >
+      {label}
+      <span className={cx("rounded-full px-1.5 text-xs tabular-nums", active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600")}>{count}</span>
+    </button>
   );
 }

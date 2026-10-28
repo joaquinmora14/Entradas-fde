@@ -61,7 +61,8 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
 3. En **Fuera de lista**: ver la lista común por grupos, **sumar gente** pegando el mensaje tal como llegó (las personas de
    un mismo mensaje quedan como un grupo; no se agregan los que ya están ni los que ya tienen entrada), quitar a quien uno
    mismo cargó mientras nadie lo haya invitado, y **Darles mis entradas** al grupo que elija (una por persona). Después
-   aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón).
+   aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón). Arriba de la
+   lista hay filtros por tamaño de grupo (Todos, 1 persona, 2 personas…, de menor a mayor).
 
 **La app no envía nada a los invitados.** En cada paso (antes de pegar, al confirmar y después de anotar) se muestra un
 aviso grande: quien anota un mail tiene que mandarle la invitación a esa persona. Después de anotar se listan los mails

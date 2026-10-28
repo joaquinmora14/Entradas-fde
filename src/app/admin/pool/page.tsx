@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, Card, EmptyState, PageTitle, Stat, dangerButtonClass, formatDateTime, inputClass, secondaryButtonClass } from "@/components/ui";
@@ -28,10 +29,39 @@ function groupRows(rows: PoolPersonRow[]) {
   return [...map.values()];
 }
 
-export default async function PoolAdminPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  const { status } = await searchParams;
+function sizeHref(status: string | undefined, size: number | null) {
+  const q = new URLSearchParams();
+  if (status) q.set("status", status);
+  if (size !== null) q.set("size", String(size));
+  const qs = q.toString();
+  return qs ? `/admin/pool?${qs}` : "/admin/pool";
+}
+
+function SizeChip({ href, active, label, count }: { href: string; active: boolean; label: string; count: number }) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "true" : undefined}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${
+        active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      {label}
+      <span className={`rounded-full px-1.5 text-xs tabular-nums ${active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>{count}</span>
+    </Link>
+  );
+}
+
+export default async function PoolAdminPage({ searchParams }: { searchParams: Promise<{ status?: string; size?: string }> }) {
+  const { status, size: sizeParam } = await searchParams;
   const actor = await getCurrentActor();
   const [rows, stats] = await Promise.all([listPool(actor, status), poolStats()]);
+  // Filtro por tamaño de grupo (de menor a mayor).
+  const allGroups = groupRows(rows);
+  const sizes = [...new Set(allGroups.map((g) => g.rows.length))].sort((a, b) => a - b);
+  const wanted = Number(sizeParam);
+  const size = sizes.includes(wanted) ? wanted : null;
+  const groups = size === null ? allGroups : allGroups.filter((g) => g.rows.length === size);
   return (
     <div className="space-y-5">
       <PageTitle title="Personas fuera de lista" subtitle="Pool común, por grupos (las personas de un mismo mensaje van juntas). Los egresados eligen un grupo y les dan entrada a todos; los más antiguos aparecen primero." />
@@ -66,11 +96,25 @@ export default async function PoolAdminPage({ searchParams }: { searchParams: Pr
             Filtrar
           </button>
         </form>
+        {sizes.length > 1 ? (
+          <div role="group" aria-label="Filtrar por tamaño de grupo" className="mb-3 flex flex-wrap gap-2">
+            <SizeChip href={sizeHref(status, null)} active={size === null} label="Todos" count={allGroups.length} />
+            {sizes.map((n) => (
+              <SizeChip
+                key={n}
+                href={sizeHref(status, n)}
+                active={size === n}
+                label={n === 1 ? "1 persona" : `${n} personas`}
+                count={allGroups.filter((g) => g.rows.length === n).length}
+              />
+            ))}
+          </div>
+        ) : null}
         {rows.length === 0 ? (
           <EmptyState title="No hay personas en el pool" />
         ) : (
           <div className="space-y-3">
-            {groupRows(rows).map((g) => (
+            {groups.map((g) => (
               <div key={g.id} className="rounded-2xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={g.rows.length > 1 ? "brand" : "slate"}>{g.rows.length === 1 ? "1 persona" : `Grupo de ${g.rows.length}`}</Badge>

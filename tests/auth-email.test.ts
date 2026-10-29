@@ -1,4 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// El envío por Gmail se simula: se guarda lo que se habría mandado.
+const sentMails: Array<{ to: string; subject: string; text: string; from: unknown }> = [];
+vi.mock("nodemailer", () => ({
+  default: {
+    createTransport: (opts: { auth: { user: string; pass: string } }) => ({
+      sendMail: async (m: { to: string; subject: string; text: string; from: unknown }) => {
+        if (opts.auth.pass === "fallar") throw new Error("SMTP caído");
+        sentMails.push(m);
+      },
+    }),
+  },
+}));
 import {
   authenticate,
   createSession,
@@ -141,8 +154,40 @@ describe("Registro y autenticación", () => {
     expect(await validateSessionToken(session)).toBeNull();
     await expect(authenticate({ email: "olvido@example.com", password: "nueva-clave-123" })).resolves.toBeTruthy();
     await expect(resetPassword({ token, password: "otra-clave-123", passwordConfirm: "otra-clave-123" })).rejects.toMatchObject({ code: "VALIDATION" });
-    // la solicitud pública no revela si el email existe
-    await expect(requestPasswordReset({ email: "noexiste@example.com", baseUrl: "http://x" })).resolves.toEqual({ emailSent: false });
+    // Sin envío de mails configurado, se le dice que le pida el link al administrador.
+    await expect(requestPasswordReset({ email: "olvido@example.com", baseUrl: "http://x" })).resolves.toBe("disabled");
+  });
+
+  it("olvidé mi contraseña con Gmail configurado: le llega un link que funciona y entra directo", async () => {
+    process.env.GMAIL_USER = "joaquitomora13@gmail.com";
+    process.env.GMAIL_APP_PASSWORD = "abcd efgh ijkl mnop";
+    sentMails.length = 0;
+    try {
+      await makeUser({ email: "juanperez@gmail.com", name: "Juan" });
+      // Escribe su mail con puntos y mayúsculas: le llega a esa dirección (Gmail ignora los puntos: es la misma casilla).
+      expect(await requestPasswordReset({ email: "Juan.Perez@gmail.com", baseUrl: "https://entradas-fde.vercel.app" })).toBe("sent");
+      expect(sentMails).toHaveLength(1);
+      expect(sentMails[0]).toMatchObject({ to: "juan.perez@gmail.com", from: { address: "joaquitomora13@gmail.com" } });
+      const link = /https:\/\/entradas-fde\.vercel\.app\/restablecer\?token=(\S+)/.exec(sentMails[0].text);
+      expect(link).not.toBeNull();
+      const actor = await resetPassword({ token: decodeURIComponent(link![1]), password: "clave-nueva-123", passwordConfirm: "clave-nueva-123" });
+      expect(actor.email).toBe("juanperez@gmail.com");
+      await expect(authenticate({ email: "juan.perez@gmail.com", password: "clave-nueva-123" })).resolves.toMatchObject({ id: actor.id });
+
+      // Nunca creó la cuenta o el mail no está: se le dice que primero la cree (no se manda nada).
+      await makeUser({ email: "pendiente@example.com", status: "pending" });
+      for (const email of ["pendiente@example.com", "noexiste@example.com"]) {
+        await expect(requestPasswordReset({ email, baseUrl: "http://x" })).rejects.toMatchObject({ code: "NOT_FOUND", message: expect.stringContaining("le diste a Juli") });
+      }
+      expect(sentMails).toHaveLength(1);
+
+      // Si Gmail falla, se avisa (y no se cae la app).
+      process.env.GMAIL_APP_PASSWORD = "fallar";
+      expect(await requestPasswordReset({ email: "juanperez@gmail.com", baseUrl: "http://x" })).toBe("failed");
+    } finally {
+      delete process.env.GMAIL_USER;
+      delete process.env.GMAIL_APP_PASSWORD;
+    }
   });
 });
 

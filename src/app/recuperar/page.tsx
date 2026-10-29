@@ -8,8 +8,8 @@ export const metadata: Metadata = { title: "Recuperar acceso" };
 export default function RecoverPage() {
   return (
     <AuthShell
-      title="Recuperar acceso"
-      subtitle="Te ayudamos a crear una nueva contraseña."
+      title="Olvidé mi contraseña"
+      subtitle="Poné tu mail y te mandamos un link para elegir una contraseña nueva."
       footer={
         <p>
           <TextLink href="/login">Volver a ingresar</TextLink>

@@ -13,7 +13,7 @@ const STATUS: Record<PoolCheckStatus, { label: string; tone: "green" | "amber" |
   invalid: { label: "Mail inválido", tone: "red" },
   repeated: { label: "Repetido en la lista", tone: "slate" },
   in_pool: { label: "Ya está en la lista", tone: "slate" },
-  has_entry: { label: "Ya tiene entrada", tone: "red" },
+  has_entry: { label: "Ya está anotado (ya tiene entrada)", tone: "red" },
   graduate: { label: "Es egresado", tone: "slate" },
 };
 

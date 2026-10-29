@@ -94,7 +94,7 @@ export async function importPool(
         if (invited.rows[0]) {
           report.conflicts.push({
             email: p.original,
-            reason: actor.isAdmin ? `Ya fue invitada por ${invited.rows[0].label}` : "Ya tiene entrada",
+            reason: actor.isAdmin ? `Ya está anotado por ${invited.rows[0].label}` : "Ya está anotado (ya tiene entrada)",
           });
           continue;
         }

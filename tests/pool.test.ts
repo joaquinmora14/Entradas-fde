@@ -64,7 +64,7 @@ describe("Personas fuera de lista (pool común)", () => {
     await inviteGuest(juan, { email: "invitada@example.com", idempotencyKey: key() }, { syncNow: false });
     const report = await importPool(admin, "invitada@example.com");
     expect(report.added).toEqual([]);
-    expect(report.conflicts).toEqual([{ email: "invitada@example.com", reason: "Ya fue invitada por Juan" }]);
+    expect(report.conflicts).toEqual([{ email: "invitada@example.com", reason: "Ya está anotado por Juan" }]);
     // Y la base de datos también lo impide.
     await expect(
       getDb().query("INSERT INTO app.pool_people (email, email_normalized) VALUES ('invitada@example.com', 'invitada@example.com')"),
@@ -255,7 +255,7 @@ describe("Personas fuera de lista (pool común)", () => {
     const r = await importPool(juan, "Pedro - pedro@gmail.com - 40111222\nLaura laura@hotmail.com 41000111\ncon.entrada@example.com\nmaria@example.com");
     expect(r.added).toEqual(["pedro@gmail.com", "laura@hotmail.com"]);
     expect(r.conflicts).toEqual([
-      { email: "con.entrada@example.com", reason: "Ya tiene entrada" }, // al egresado no se le dice quién
+      { email: "con.entrada@example.com", reason: "Ya está anotado (ya tiene entrada)" }, // al egresado no se le dice quién
       { email: "maria@example.com", reason: "Es un egresado" },
     ]);
     const board = await getPoolBoard(maria);
@@ -449,5 +449,23 @@ describe("Personas fuera de lista (pool común)", () => {
       expect(r.added).toHaveLength(20);
       expect(await count("SELECT count(DISTINCT group_id) AS n FROM app.pool_people WHERE email LIKE 'csv%'")).toBe(20);
     });
+  });
+
+  it("si ya lo anotaron en una lista personal, al sumarlo a la lista general avisa que ya está anotado (aunque lo escriban distinto)", async () => {
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const maria = await makeUser({ email: "maria@example.com", name: "María" });
+    await inviteGroup(juan, { emails: ["Sofia.Lopez@gmail.com", "tomi@hotmail.com"], idempotencyKey: key() }, { syncNow: false });
+    const variants = ["sofialopez@gmail.com", "SOFIA.LOPEZ+fiesta@gmail.com", "Tomi@Hotmail.com"];
+    // Revisión previa (cada variante por separado): las marca como ya anotadas.
+    for (const v of variants) expect((await checkPoolEmails(maria, [v])).items[0].status).toBe("has_entry");
+    expect((await checkPoolEmails(maria, ["nueva@gmail.com"])).items[0].status).toBe("ok");
+    // Y al cargarlas igual, no entran a la lista.
+    for (const v of variants) {
+      const r = await importPool(maria, v);
+      expect(r.added).toEqual([]);
+      expect(r.conflicts).toEqual([{ email: v.toLowerCase(), reason: "Ya está anotado (ya tiene entrada)" }]);
+    }
+    expect((await importPool(maria, "nueva@gmail.com")).added).toEqual(["nueva@gmail.com"]);
+    expect(emailsOf(await getPoolBoard(maria))).toEqual(["nueva@gmail.com"]);
   });
 });

@@ -110,14 +110,29 @@ function PasswordInput({ autoComplete, minLength }: { autoComplete: string; minL
 
 export function RequestResetForm() {
   const [state, action] = useActionState(requestResetAction, initialFormState);
+  const needsRegister = (state.data as { needsRegister?: boolean } | undefined)?.needsRegister;
+  const sent = (state.data as { result?: string } | undefined)?.result === "sent";
+  const typed = state.fields?.email ?? "";
   return (
     <form action={action} className="space-y-4" noValidate>
-      {state.message ? <Alert tone={state.ok ? "info" : "error"}>{state.message}</Alert> : null}
-      <Field label="Email de tu cuenta" htmlFor="email">
-        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" required className={inputClass} placeholder="tu@email.com" />
+      {state.message ? (
+        <Alert tone={sent ? "success" : needsRegister ? "warning" : state.ok ? "info" : "error"} title={needsRegister ? "Primero tenés que crear tu cuenta" : sent ? "Revisá tu mail" : undefined}>
+          {state.message}
+          {needsRegister ? (
+            <Link
+              href={`/registro?email=${encodeURIComponent(typed)}`}
+              className="mt-3 block rounded-xl bg-brand-600 px-4 py-3 text-center font-semibold text-white no-underline hover:bg-brand-700"
+            >
+              Crear mi cuenta
+            </Link>
+          ) : null}
+        </Alert>
+      ) : null}
+      <Field label="Tu mail" htmlFor="email">
+        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" required className={inputClass} defaultValue={typed} placeholder="tu@email.com" />
       </Field>
       <SubmitButton className="w-full rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white hover:bg-brand-700 disabled:opacity-60" pendingText="Enviando…">
-        Recuperar acceso
+        {sent ? "Mandarme otro link" : "Mandarme un link para cambiar la contraseña"}
       </SubmitButton>
     </form>
   );

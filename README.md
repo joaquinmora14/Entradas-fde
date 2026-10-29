@@ -100,9 +100,19 @@ invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes
 **Quién es administrador:** los emails de la variable `BOOTSTRAP_ADMIN_EMAILS` (configurada en Vercel). Al registrarse o
 iniciar sesión con uno de esos emails la cuenta queda como administradora. Nadie puede volverse admin desde el navegador.
 
-**Recuperación de acceso:** si no hay proveedor de email configurado, el administrador genera un enlace personal desde
-*Egresados → Acciones* y se lo envía a la persona. Opcionalmente, con `RESEND_API_KEY` + `EMAIL_FROM` los egresados
-reciben el enlace por email desde `/recuperar`.
+**Recuperación de acceso (automática):** en `/recuperar` (“Olvidé mi contraseña”) el egresado pone su mail y le llega un
+link personal (vale 24 h, un solo uso) para elegir una contraseña nueva y entrar directo. Los mails salen desde la cuenta
+de Gmail del organizador. Para activarlo:
+
+1. En la cuenta de Google `joaquitomora13@gmail.com`: activar la **verificación en 2 pasos**
+   (https://myaccount.google.com/signinoptions/twosv).
+2. Crear una **contraseña de aplicación** en https://myaccount.google.com/apppasswords (nombre: `Entradas FDE`). Google
+   muestra 16 letras.
+3. En Vercel → proyecto → *Settings → Environment Variables*: `GMAIL_APP_PASSWORD` = esas 16 letras (tipo *Sensitive*).
+   `GMAIL_USER` ya está cargada. Redesplegar.
+
+Mientras no esté configurado, la pantalla le dice al egresado que le pida el link al administrador, que lo genera desde
+*Egresados → Acciones*. Si alguien nunca creó su cuenta, le dice que primero la cree.
 
 ## Google Sheets: configuración
 
@@ -132,7 +142,8 @@ Nunca subas el archivo JSON al repositorio (es público).
 | `GOOGLE_SHEETS_SPREADSHEET_ID` | ID de la planilla. |
 | `GOOGLE_SHEETS_TAB` | Nombre de la hoja (por defecto `Invitados`). |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON de la cuenta de servicio (texto o base64). |
-| `RESEND_API_KEY`, `EMAIL_FROM` | Opcional: emails de recuperación. |
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Mails de recuperación de contraseña desde Gmail (contraseña de aplicación). |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Alternativa a Gmail para los mails (requiere dominio propio). |
 
 ## Desarrollo local
 

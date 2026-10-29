@@ -320,7 +320,14 @@ export async function createPasswordResetToken(
  * Solicitud de recuperación iniciada por el propio usuario.
  * Siempre responde igual (no revela si el email existe).
  */
-export async function requestPasswordReset(input: { email: unknown; baseUrl: string; ip?: string | null }): Promise<{ emailSent: boolean }> {
+export type ResetRequestResult = "sent" | "disabled" | "failed";
+
+/**
+ * Pedido de "olvidé mi contraseña". Si el envío de mails está configurado, le manda al
+ * egresado un enlace personal (vale 24 h, un solo uso). Si no, el administrador genera
+ * el enlace a mano desde el panel.
+ */
+export async function requestPasswordReset(input: { email: unknown; baseUrl: string; ip?: string | null }): Promise<ResetRequestResult> {
   const parsed = parseEmail(input.email);
   if (!parsed.ok) throw new AppError("VALIDATION", parsed.reason);
   const email = parsed.normalized;
@@ -335,35 +342,41 @@ export async function requestPasswordReset(input: { email: unknown; baseUrl: str
     throw new AppError("RATE_LIMITED", "Ya pediste varios enlaces. Esperá una hora o pedile ayuda al administrador.");
   }
 
-  const { rows } = await getDb().query<UserRow>(
-    "SELECT * FROM app.users WHERE email = $1 AND status = 'active'",
-    [email],
-  );
+  const { rows } = await getDb().query<UserRow>("SELECT * FROM app.users WHERE email = $1", [email]);
   const user = rows[0];
-  let sent = false;
-  if (user && emailEnabled()) {
+  if (!user || (!user.password_hash && user.status === "pending")) {
+    await auditSafe({ actorId: user?.id ?? null, actorEmail: email, action: "password_reset_request", result: "rejected", ip: input.ip, details: { reason: user ? "not_registered" : "unknown_email" } });
+    throw new AppError("NOT_FOUND", NOT_REGISTERED);
+  }
+  if (user.status === "disabled") {
+    throw new AppError("FORBIDDEN", "Esta cuenta está deshabilitada. Contactá al administrador.");
+  }
+  let result: ResetRequestResult = "disabled";
+  if (emailEnabled()) {
     const token = await createPasswordResetToken(user.id, null);
     const link = `${input.baseUrl}/restablecer?token=${encodeURIComponent(token)}`;
     try {
+      // Se manda a la dirección tal como la escribió (es la misma casilla que la de su cuenta).
       await sendEmail({
-        to: user.email,
-        subject: "Recuperá tu acceso – Invitaciones Fiesta de Egresados",
-        text: `Hola${user.display_name ? ` ${user.display_name}` : ""}:\n\nPara crear una nueva contraseña entrá a este enlace (vale 24 horas y se puede usar una sola vez):\n\n${link}\n\nSi no lo pediste, ignorá este mensaje.`,
+        to: parsed.original,
+        subject: "Nueva contraseña – Invitaciones Fiesta de Egresados",
+        text: `Hola${user.display_name ? ` ${user.display_name}` : ""}:\n\nPara crear una nueva contraseña entrá a este enlace (vale 24 horas y se puede usar una sola vez):\n\n${link}\n\nDespués entrás directo a tu panel.\n\nSi no lo pediste vos, ignorá este mensaje: tu contraseña no cambia.`,
       });
-      sent = true;
+      result = "sent";
     } catch (err) {
+      result = "failed";
       console.error("[auth] fallo el envío del email de recuperación:", (err as Error).message);
     }
   }
   await auditSafe({
-    actorId: user?.id ?? null,
+    actorId: user.id,
     actorEmail: email,
     action: "password_reset_request",
-    result: user ? "success" : "rejected",
+    result: result === "failed" ? "error" : "success",
     ip: input.ip,
-    details: { emailSent: sent },
+    details: { emailSent: result === "sent", result },
   });
-  return { emailSent: sent };
+  return result;
 }
 
 export async function resetPassword(input: {

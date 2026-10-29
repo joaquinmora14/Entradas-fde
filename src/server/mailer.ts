@@ -19,10 +19,12 @@ export function emailEnabled(): boolean {
 export async function sendEmail(msg: { to: string; subject: string; text: string }): Promise<void> {
   const gmail = gmailConfig();
   if (gmail) {
+    // SMTP_HOST/SMTP_PORT permiten usar otro servidor (p. ej. un buzón de prueba local); por defecto, Gmail.
+    const port = Number(process.env.SMTP_PORT) || 465;
     const transport = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
+      host: process.env.SMTP_HOST?.trim() || "smtp.gmail.com",
+      port,
+      secure: port === 465,
       auth: { user: gmail.user, pass: gmail.pass },
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,

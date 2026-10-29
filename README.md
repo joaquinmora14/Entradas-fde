@@ -111,8 +111,8 @@ de Gmail del organizador. Para activarlo:
 3. En Vercel → proyecto → *Settings → Environment Variables*: `GMAIL_APP_PASSWORD` = esas 16 letras (tipo *Sensitive*).
    `GMAIL_USER` ya está cargada. Redesplegar.
 
-Mientras no esté configurado, la pantalla le dice al egresado que le pida el link al administrador, que lo genera desde
-*Egresados → Acciones*. Si alguien nunca creó su cuenta, le dice que primero la cree.
+El egresado lo hace todo solo: no tiene que pedirle nada al administrador. Si alguien nunca creó su cuenta, la pantalla
+le dice que primero la cree. Como respaldo, el administrador igual puede generar un enlace desde *Egresados → Acciones*.
 
 ## Google Sheets: configuración
 

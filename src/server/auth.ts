@@ -349,7 +349,7 @@ export async function requestPasswordReset(input: { email: unknown; baseUrl: str
     [email, input.ip ?? null],
   );
   if (recent.rows[0].n >= 5) {
-    throw new AppError("RATE_LIMITED", "Ya pediste varios enlaces. Esperá una hora o pedile ayuda al administrador.");
+    throw new AppError("RATE_LIMITED", "Ya pediste varios links seguidos. Revisá tu mail (también spam) o esperá una hora para pedir otro.");
   }
 
   const { rows } = await getDb().query<UserRow>("SELECT * FROM app.users WHERE email = $1", [email]);

@@ -3,7 +3,6 @@
 import { redirect } from "next/navigation";
 import { authenticate, registerAccount, requestPasswordReset, resetPassword } from "@/server/auth";
 import { isAppError, publicMessage } from "@/server/errors";
-import { ADMIN_CONTACT_EMAIL } from "@/lib/contact";
 import { baseUrl, clientIp, endSession, startSession, switchAccount } from "@/lib/session";
 import type { FormState } from "@/lib/form-state";
 
@@ -66,10 +65,8 @@ export async function requestResetAction(_prev: FormState, form: FormData): Prom
     const message =
       result === "sent"
         ? `Listo: te mandamos un mail a ${email} con un link para elegir una contraseña nueva. Vale 24 horas. Si no lo ves en unos minutos, revisá la carpeta de spam o promociones.`
-        : result === "failed"
-          ? `No pudimos mandarte el mail en este momento. Probá de nuevo en unos minutos o avisale a ${ADMIN_CONTACT_EMAIL}.`
-          : `Para elegir una contraseña nueva, avisale a ${ADMIN_CONTACT_EMAIL}: te va a mandar un link personal.`;
-    return { ok: result !== "failed", message, fields: { email }, data: { result } };
+        : "No pudimos mandarte el mail en este momento. Probá de nuevo en unos minutos.";
+    return { ok: result === "sent", message, fields: { email }, data: { result } };
   } catch (err) {
     const notRegistered = isAppError(err) && err.code === "NOT_FOUND";
     return { ok: false, message: publicMessage(err), fields: { email }, data: notRegistered ? { needsRegister: true } : undefined };

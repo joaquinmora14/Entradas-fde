@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { getCurrentActor } from "@/lib/session";
-import { logoutAction } from "@/app/actions/auth";
+import { getCurrentActor, getOtherActor } from "@/lib/session";
+import { logoutAction, switchAccountAction } from "@/app/actions/auth";
+import { InAppBrowserNotice } from "@/components/in-app-browser-notice";
 import { NavLinks } from "@/components/nav-links";
 import "./globals.css";
 
@@ -19,6 +20,8 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const actor = await getCurrentActor();
+  const other = actor ? await getOtherActor() : null;
+  const otherName = other ? (other.displayName ?? other.email) : null;
   const links = actor
     ? [
         ...(actor.isGraduate
@@ -55,9 +58,37 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">{children}</main>
+        {other && other.id !== actor?.id ? (
+          <div className="border-b border-brand-100 bg-brand-50">
+            <form action={switchAccountAction} className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm text-brand-700">
+              <span>
+                Estás como <strong>{actor?.displayName ?? actor?.email}</strong>.
+              </span>
+              <button type="submit" className="rounded-lg bg-white px-3 py-1.5 font-semibold text-brand-700 shadow-sm ring-1 ring-brand-100 hover:bg-brand-100">
+                Cambiar a {otherName}
+              </button>
+            </form>
+          </div>
+        ) : null}
+        <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
+          <InAppBrowserNotice />
+          {children}
+        </main>
         <footer className="mx-auto max-w-5xl px-4 pb-8 text-center text-xs text-slate-400">
-          {actor ? <>Sesión: {actor.displayName ?? actor.email}</> : "Invitaciones para la fiesta de egresados"}
+          {actor ? (
+            <>
+              Sesión: {actor.displayName ?? actor.email}
+              {!other ? (
+                <form action={switchAccountAction} className="mt-1">
+                  <button type="submit" className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                    Entrar con otra cuenta (sin cerrar esta)
+                  </button>
+                </form>
+              ) : null}
+            </>
+          ) : (
+            "Invitaciones para la fiesta de egresados"
+          )}
         </footer>
       </body>
     </html>

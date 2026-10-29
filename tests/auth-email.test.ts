@@ -119,6 +119,22 @@ describe("Registro y autenticación", () => {
     });
   });
 
+  it("la sesión dura 90 días y se renueva sola al usarla (mientras entres, no vence)", async () => {
+    const u = await makeUser({ email: "sesion@example.com" });
+    const { token } = await createSession(u.id);
+    const exp = async () => (await getDb().query("SELECT expires_at FROM app.sessions WHERE user_id = $1", [u.id])).rows[0].expires_at as Date;
+    const days = (d: Date) => (d.getTime() - Date.now()) / 86_400_000;
+    expect(days(await exp())).toBeGreaterThan(89.9);
+    // Simula que pasaron 80 días sin entrar: le quedan 10.
+    await getDb().query("UPDATE app.sessions SET expires_at = now() + interval '10 days' WHERE user_id = $1", [u.id]);
+    expect((await validateSessionToken(token))?.id).toBe(u.id);
+    expect(days(await exp())).toBeGreaterThan(89.9); // volvió a 90
+    // Vencida: ya no sirve y no se renueva.
+    await getDb().query("UPDATE app.sessions SET expires_at = now() - interval '1 minute' WHERE user_id = $1", [u.id]);
+    expect(await validateSessionToken(token)).toBeNull();
+    expect(days(await exp())).toBeLessThan(0);
+  });
+
   it("bloquea por exceso de intentos fallidos", async () => {
     await makeUser({ email: "bloq@example.com" });
     for (let i = 0; i < 8; i++) {

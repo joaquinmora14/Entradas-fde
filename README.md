@@ -188,6 +188,10 @@ tests/                pruebas (Vitest + PostgreSQL)
 
 - Contraseñas con **argon2id** (`@node-rs/argon2`); sesiones con token aleatorio en cookie `httpOnly`/`Secure`
   (`__Host-`), solo el hash se guarda en la base; límite de intentos de login por email e IP.
+- La sesión dura 90 días y **se renueva sola** al usarla (en la base al validarla y la cookie en `src/proxy.ts`), así
+  que no hay que volver a ingresar. Se pueden tener **dos cuentas en el mismo navegador** (p. ej. admin y egresado):
+  “Entrar con otra cuenta (sin cerrar esta)” y después “Cambiar a …”. Si la página se abre desde el navegador interno
+  de WhatsApp/Instagram (que no guarda la sesión), se avisa que conviene abrirla en Chrome o Safari.
 - Todo el esquema vive en `app`, no expuesto por ninguna API pública; los roles `anon`/`authenticated` no tienen acceso.
 - Server Actions con verificación de origen (CSRF) de Next.js; los permisos se validan en el servidor en cada acción.
 - El panel público solo expone nombre y números. La planilla es privada (compartida solo con la cuenta de servicio).

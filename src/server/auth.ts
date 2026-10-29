@@ -7,7 +7,8 @@ import { parseEmail } from "./email";
 import { AppError } from "./errors";
 import { sendEmail, emailEnabled } from "./mailer";
 
-export const SESSION_TTL_DAYS = 30;
+/** La sesión dura 90 días y se renueva sola cada vez que se usa: mientras entres, no vence. */
+export const SESSION_TTL_DAYS = 90;
 const RESET_TTL_MINUTES = 60 * 24;
 const LOGIN_WINDOW_MINUTES = 15;
 const MAX_FAILED_LOGINS_PER_EMAIL = 8;
@@ -276,13 +277,22 @@ export async function createSession(userId: string): Promise<{ token: string; ex
 
 export async function validateSessionToken(token: string | undefined | null): Promise<Actor | null> {
   if (!token || token.length > 200) return null;
-  const { rows } = await getDb().query<UserRow>(
-    `SELECT u.* FROM app.sessions s
+  const hash = sha256(token);
+  const { rows } = await getDb().query<UserRow & { session_expires_at: Date }>(
+    `SELECT u.*, s.expires_at AS session_expires_at FROM app.sessions s
        JOIN app.users u ON u.id = s.user_id
       WHERE s.token_hash = $1 AND s.expires_at > now() AND u.status = 'active'`,
-    [sha256(token)],
+    [hash],
   );
-  return rows[0] ? toActor(rows[0]) : null;
+  const row = rows[0];
+  if (!row) return null;
+  // Renovación: si pasó más de un día desde la última, vuelve a durar SESSION_TTL_DAYS (una escritura por día como máximo).
+  if (row.session_expires_at.getTime() < Date.now() + (SESSION_TTL_DAYS - 1) * 24 * 3600 * 1000) {
+    await getDb()
+      .query("UPDATE app.sessions SET expires_at = now() + make_interval(days => $2) WHERE token_hash = $1", [hash, SESSION_TTL_DAYS])
+      .catch((err) => console.error("[session] no se pudo renovar:", (err as Error).message));
+  }
+  return toActor(row);
 }
 
 export async function revokeSession(token: string | undefined | null): Promise<void> {

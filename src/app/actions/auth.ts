@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { authenticate, registerAccount, requestPasswordReset, resetPassword } from "@/server/auth";
 import { isAppError, publicMessage } from "@/server/errors";
 import { ADMIN_CONTACT_EMAIL } from "@/lib/contact";
-import { baseUrl, clientIp, endSession, startSession } from "@/lib/session";
+import { baseUrl, clientIp, endSession, startSession, switchAccount } from "@/lib/session";
 import type { FormState } from "@/lib/form-state";
 
 function safeNext(value: FormDataEntryValue | null): string {
@@ -48,9 +48,15 @@ export async function registerAction(_prev: FormState, form: FormData): Promise<
   redirect("/panel?bienvenida=1");
 }
 
+/** Cambiar a la otra cuenta guardada en este navegador (o ingresar con otra sin cerrar la actual). */
+export async function switchAccountAction(): Promise<void> {
+  const r = await switchAccount();
+  redirect(r === "switched" ? "/" : "/login?otra=1");
+}
+
 export async function logoutAction(): Promise<void> {
-  await endSession();
-  redirect("/login");
+  const left = await endSession();
+  redirect(left === "other" ? "/" : "/login");
 }
 
 export async function requestResetAction(_prev: FormState, form: FormData): Promise<FormState> {

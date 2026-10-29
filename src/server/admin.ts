@@ -2,7 +2,7 @@ import { audit } from "./audit";
 import { requireAdmin, type Actor } from "./actor";
 import { createPasswordResetToken, revokeAllSessions, setRegistrationCode, getRegistrationCodeHash, validateDisplayName } from "./auth";
 import { parseCsv, MAX_IMPORT_ROWS } from "./csv";
-import { getDb, pgRaisedCode, withTransaction } from "./db";
+import { getDb, pgRaisedCode, withTransaction, type DbClient } from "./db";
 import { parseEmail } from "./email";
 import { AppError } from "./errors";
 import { alphaCompare } from "./sort";
@@ -168,14 +168,14 @@ export interface InviterSummary {
   initialQuota: number;
   used: number;
   /** Mails que anotó (activos), agrupados como se anotaron: los grupos más recientes primero. */
-  groups: Array<{ id: string; createdAt: string; source: "direct" | "pool"; emails: string[] }>;
+  groups: Array<{ id: string; createdAt: string; source: "direct" | "pool"; emails: string[]; invitationIds: string[] }>;
 }
 
 /** Para el administrador: cada egresado (en orden alfabético) con todos los mails a los que les dio entrada. */
 export async function listInvitesByGraduate(actorIn: Actor | null): Promise<InviterSummary[]> {
   const users = (await listUsers(actorIn)).filter((u) => u.isGraduate);
-  const { rows } = await getDb().query<{ inviter_id: string; group_id: string; guest_email: string; source: "direct" | "pool"; created_at: Date }>(
-    `SELECT inviter_id, group_id, guest_email, source, created_at FROM app.invitations
+  const { rows } = await getDb().query<{ id: string; inviter_id: string; group_id: string; guest_email: string; source: "direct" | "pool"; created_at: Date }>(
+    `SELECT id, inviter_id, group_id, guest_email, source, created_at FROM app.invitations
       WHERE status = 'active'
       ORDER BY created_at, id`,
   );
@@ -184,8 +184,9 @@ export async function listInvitesByGraduate(actorIn: Actor | null): Promise<Invi
     let groups = byUser.get(r.inviter_id);
     if (!groups) byUser.set(r.inviter_id, (groups = new Map()));
     let g = groups.get(r.group_id);
-    if (!g) groups.set(r.group_id, (g = { id: r.group_id, createdAt: r.created_at.toISOString(), source: r.source, emails: [] }));
+    if (!g) groups.set(r.group_id, (g = { id: r.group_id, createdAt: r.created_at.toISOString(), source: r.source, emails: [], invitationIds: [] }));
     g.emails.push(r.guest_email);
+    g.invitationIds.push(r.id);
     g.createdAt = r.created_at.toISOString();
   }
   return users.map((u) => ({
@@ -332,42 +333,75 @@ export async function cancelInvitation(
   opts: { syncNow?: boolean } = {},
 ): Promise<void> {
   const actor = requireAdmin(actorIn);
-  const why = typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 300) : null;
-  if (!why) throw new AppError("VALIDATION", "Indicá el motivo de la anulación.");
-  await withTransaction(async (c) => {
-    const { rows } = await c.query<{ id: string; guest_email_normalized: string; status: string; source: string; inviter_id: string }>(
-      "SELECT id, guest_email_normalized, status, source, inviter_id FROM app.invitations WHERE id = $1 FOR UPDATE",
-      [invitationId],
+  const why = cancelReason(reason);
+  await withTransaction((c) => cancelOne(c, actor, invitationId, why));
+  if (opts.syncNow !== false) await syncAfterWrite("admin_cancel");
+}
+
+/**
+ * Anula todas las invitaciones activas de un grupo (lo que un egresado anotó junto),
+ * en una sola transacción. Devuelve los mails borrados.
+ */
+export async function cancelInvitationGroup(
+  actorIn: Actor | null,
+  groupId: string,
+  reason: unknown,
+  opts: { syncNow?: boolean } = {},
+): Promise<string[]> {
+  const actor = requireAdmin(actorIn);
+  const why = cancelReason(reason);
+  if (!/^[0-9a-f-]{36}$/i.test(groupId)) throw new AppError("VALIDATION", "Grupo inválido.");
+  const emails = await withTransaction(async (c) => {
+    const { rows } = await c.query<{ id: string; guest_email: string }>(
+      "SELECT id, guest_email FROM app.invitations WHERE group_id = $1 AND status = 'active' ORDER BY created_at, id FOR UPDATE",
+      [groupId],
     );
-    const inv = rows[0];
-    if (!inv) throw new AppError("NOT_FOUND", "La invitación no existe.");
-    if (inv.status !== "active") throw new AppError("CONFLICT", "La invitación ya estaba anulada.");
-    await c.query(
-      `UPDATE app.invitations SET status = 'cancelled', cancelled_at = now(), cancelled_by = $2, cancel_reason = $3
-        WHERE id = $1`,
-      [invitationId, actor.id, why],
-    );
-    if (inv.source === "pool") {
-      await c.query(
-        `UPDATE app.pool_people SET status = 'retired', retired_at = now(), retired_by = $2,
-                retired_reason = 'invitation_cancelled'
-          WHERE invitation_id = $1`,
-        [invitationId, actor.id],
-      );
-    }
-    await audit(
-      {
-        actorId: actor.id,
-        actorEmail: actor.email,
-        action: "invitation_cancel",
-        result: "success",
-        target: invitationId,
-        details: { guest: inv.guest_email_normalized, source: inv.source, inviterId: inv.inviter_id, reason: why },
-      },
-      c,
-    );
+    if (!rows.length) throw new AppError("CONFLICT", "Ese grupo ya no tiene invitaciones activas.");
+    for (const r of rows) await cancelOne(c, actor, r.id, why);
+    return rows.map((r) => r.guest_email);
   });
   if (opts.syncNow !== false) await syncAfterWrite("admin_cancel");
+  return emails;
+}
+
+function cancelReason(reason: unknown): string {
+  const why = typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 300) : null;
+  if (!why) throw new AppError("VALIDATION", "Indicá el motivo de la anulación.");
+  return why;
+}
+
+async function cancelOne(c: DbClient, actor: Actor, invitationId: string, why: string): Promise<void> {
+  const { rows } = await c.query<{ id: string; guest_email_normalized: string; status: string; source: string; inviter_id: string }>(
+    "SELECT id, guest_email_normalized, status, source, inviter_id FROM app.invitations WHERE id = $1 FOR UPDATE",
+    [invitationId],
+  );
+  const inv = rows[0];
+  if (!inv) throw new AppError("NOT_FOUND", "La invitación no existe.");
+  if (inv.status !== "active") throw new AppError("CONFLICT", "La invitación ya estaba anulada.");
+  await c.query(
+    `UPDATE app.invitations SET status = 'cancelled', cancelled_at = now(), cancelled_by = $2, cancel_reason = $3
+      WHERE id = $1`,
+    [invitationId, actor.id, why],
+  );
+  if (inv.source === "pool") {
+    await c.query(
+      `UPDATE app.pool_people SET status = 'retired', retired_at = now(), retired_by = $2,
+              retired_reason = 'invitation_cancelled'
+        WHERE invitation_id = $1`,
+      [invitationId, actor.id],
+    );
+  }
+  await audit(
+    {
+      actorId: actor.id,
+      actorEmail: actor.email,
+      action: "invitation_cancel",
+      result: "success",
+      target: invitationId,
+      details: { guest: inv.guest_email_normalized, source: inv.source, inviterId: inv.inviter_id, reason: why },
+    },
+    c,
+  );
 }
 
 /**

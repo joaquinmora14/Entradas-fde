@@ -1,5 +1,6 @@
 import type { InvitationGroup, MyInvitation } from "@/server/invitations";
 import { CopyButton } from "./copy-button";
+import { RegretInfo } from "./regret-info";
 import { Badge, SyncBadge, formatDateTime } from "./ui";
 
 /** Un grupo de mails anotados juntos (van juntos a la fiesta), con botones para copiarlos. */
@@ -25,6 +26,7 @@ export function InvitationGroupCard({ group }: { group: InvitationGroup<MyInvita
           </li>
         ))}
       </ul>
+      <RegretInfo emails={group.items.map((i) => i.email)} />
     </div>
   );
 }

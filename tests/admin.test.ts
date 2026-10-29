@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cancelInvitation,
+  cancelInvitationGroup,
   correctInvitationEmail,
   deletePendingUser,
   generateAccessLink,
@@ -36,6 +37,7 @@ describe("Administración", () => {
       () => updateRegistrationCode(juan, "abcd"),
       () => listPool(juan),
       () => listInvitesByGraduate(juan),
+      () => cancelInvitationGroup(juan, "00000000-0000-4000-8000-000000000000", "x"),
       () => updatePoolPerson(juan, "00000000-0000-4000-8000-000000000000", "delete"),
     ];
     for (const op of ops) await expect(op()).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -117,4 +119,38 @@ describe("Administración", () => {
       ["Zoe", 3, [["direct", ["z3@example.com"]], ["direct", ["z1@example.com", "z2@example.com"]]]],
     ]);
   });
+
+  it("el admin borra un grupo entero o un solo mail: las entradas vuelven al egresado y salen de la planilla", async () => {
+    const { MemorySheetsClient } = await import("@/server/sheets/memory");
+    const { setSheetsClientForTests } = await import("@/server/sheets/sync");
+    const sheet = new MemorySheetsClient();
+    setSheetsClientForTests(sheet);
+    const admin = await makeUser({ email: "admin@example.com", admin: true, graduate: false });
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const g = await inviteGroup(juan, { emails: ["a@example.com", "b@example.com", "c@example.com"], idempotencyKey: key() });
+    await inviteGroup(juan, { emails: ["d@example.com", "e@example.com"], idempotencyKey: key() });
+    if (g.kind !== "created") throw new Error("no creado");
+    expect(sheet.rows.map((r) => r[0])).toEqual(["a@example.com", "b@example.com", "c@example.com", "d@example.com", "e@example.com"]);
+    expect(await quota(juan.id)).toBe(5);
+
+    // Borrar el grupo entero (3 mails).
+    expect(await cancelInvitationGroup(admin, g.groupId, "Se arrepintió")).toEqual(["a@example.com", "b@example.com", "c@example.com"]);
+    expect(await quota(juan.id)).toBe(2);
+    expect(sheet.rows.map((r) => r[0])).toEqual(["d@example.com", "e@example.com"]);
+    await expect(cancelInvitationGroup(admin, g.groupId, "otra vez")).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Borrar un solo mail del otro grupo.
+    const [grupo2] = (await listInvitesByGraduate(admin)).find((x) => x.name === "Juan")!.groups;
+    await cancelInvitation(admin, grupo2.invitationIds[0], "Se arrepintió");
+    expect(await quota(juan.id)).toBe(1);
+    expect(sheet.rows.map((r) => r[0])).toEqual(["e@example.com"]);
+    // El mail borrado se puede volver a anotar (por él o por otro).
+    expect((await inviteGroup(juan, { emails: ["a@example.com"], idempotencyKey: key() }, { syncNow: false })).kind).toBe("created");
+    expect(await count("SELECT count(*) AS n FROM app.audit_logs WHERE action = 'invitation_cancel'")).toBe(4);
+  });
 });
+
+async function quota(userId: string): Promise<number> {
+  const { rows } = await (await import("@/server/db")).getDb().query("SELECT used FROM app.invitation_quotas WHERE user_id = $1", [userId]);
+  return rows[0].used;
+}

@@ -68,6 +68,10 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
    aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón). Arriba de la
    lista hay filtros por tamaño de grupo (Todos, 1 persona, 2 personas…, de menor a mayor).
 
+**¿Se arrepintió?** Un egresado no puede borrar un mail anotado. En cada grupo anotado hay un botón “¿Te arrepentiste?”
+que le explica que le avise al administrador (joaquitomora13@gmail.com), con un botón para escribirle un mail que ya
+dice qué mails borrar. El administrador los borra desde **Admin → Quién invitó**.
+
 **La app no envía nada a los invitados.** En cada paso (antes de pegar, al confirmar y después de anotar) se muestra un
 aviso grande: quien anota un mail tiene que mandarle la invitación a esa persona. Después de anotar se listan los mails
 con un botón **Copiar** en cada uno (se copian de a uno).
@@ -81,6 +85,8 @@ invitados (nombres, DNI) no salen a ningún servicio externo. Entiende variantes
   contraseña** (válidos 24 h, un uso).
 - **Quién invitó:** todos los egresados (orden alfabético) con los mails a los que les dio entrada, agrupados como los
   anotaron, con buscador instantáneo por egresado o invitado y filtros “Invitaron a alguien / Todavía no invitaron / Todos”.
+  Botones **Borrar** (un mail) y **Borrar grupo**: la entrada vuelve al egresado y la fila se quita de la planilla
+  (queda en la auditoría).
 - **Ficha de cada egresado** (tocar su nombre): entradas restantes y usadas, todos los mails que anotó, anular o
   corregir cada uno, y **anotar entradas en su nombre** (usa su cupo y queda auditado como hecho por el admin).
 - **Invitaciones:** buscar, ver quién invitó a quién, **anular** (libera la entrada y quita la fila) o **corregir el email**

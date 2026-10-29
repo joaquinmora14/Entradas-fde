@@ -3,13 +3,23 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { InviterSummary } from "@/server/admin";
+import type { FormState } from "@/lib/form-state";
+import { ActionForm } from "./action-form";
 import { CopyButton } from "./copy-button";
-import { Badge, Card, EmptyState, cx, formatDateTime, inputClass } from "./ui";
+import { SubmitButton } from "./submit-button";
+import { Badge, Card, EmptyState, cx, dangerButtonClass, formatDateTime, inputClass } from "./ui";
 
 type Show = "with" | "all" | "without";
 
 /** Vista del admin: cada egresado con sus invitados. Se filtra al instante por nombre o mail. */
-export function InvitesByGraduate({ graduates }: { graduates: InviterSummary[] }) {
+export function InvitesByGraduate({
+  graduates,
+  remove,
+}: {
+  graduates: InviterSummary[];
+  /** Borra un mail (invitationId) o un grupo entero (groupId); la entrada vuelve al egresado. */
+  remove: (prev: FormState, form: FormData) => Promise<FormState>;
+}) {
   const [q, setQ] = useState("");
   const [show, setShow] = useState<Show>("with");
   const term = q.trim().toLowerCase();
@@ -91,12 +101,25 @@ export function InvitesByGraduate({ graduates }: { graduates: InviterSummary[] }
               <div className="mt-3 space-y-2">
                 {groups.map((gr) => (
                   <div key={gr.id} className="rounded-xl border border-slate-200 p-2.5">
-                    <p className="text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">{gr.emails.length === 1 ? "1 persona" : `Grupo de ${gr.emails.length}`}</span> ·{" "}
-                      {gr.source === "pool" ? "desde fuera de lista" : "entradas individuales"} · {formatDateTime(gr.createdAt)}
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        <span className="font-semibold text-slate-700">{gr.emails.length === 1 ? "1 persona" : `Grupo de ${gr.emails.length}`}</span> ·{" "}
+                        {gr.source === "pool" ? "desde fuera de lista" : "entradas individuales"} · {formatDateTime(gr.createdAt)}
+                      </p>
+                      {gr.emails.length > 1 ? (
+                        <ActionForm
+                          action={remove}
+                          hidden={{ groupId: gr.id }}
+                          confirm={`¿Borrar el grupo entero (${gr.emails.length} mails) que anotó ${g.name}?\n\n${gr.emails.join("\n")}\n\nLas ${gr.emails.length} entradas vuelven a ${g.name} y se quitan de la planilla.`}
+                        >
+                          <SubmitButton className={cx(dangerButtonClass, "px-2.5 py-1.5 text-xs")} pendingText="Borrando…">
+                            Borrar grupo
+                          </SubmitButton>
+                        </ActionForm>
+                      ) : null}
+                    </div>
                     <ul className="mt-1 divide-y divide-slate-100">
-                      {gr.emails.map((e) => (
+                      {gr.emails.map((e, idx) => (
                         <li key={e} className="flex flex-wrap items-center gap-2 py-1">
                           <span
                             className={cx(
@@ -107,6 +130,15 @@ export function InvitesByGraduate({ graduates }: { graduates: InviterSummary[] }
                             {e}
                           </span>
                           <CopyButton text={e} />
+                          <ActionForm
+                            action={remove}
+                            hidden={{ invitationId: gr.invitationIds[idx] }}
+                            confirm={`¿Borrar ${e} de las invitaciones de ${g.name}?\n\nLa entrada vuelve a ${g.name} y se quita de la planilla.`}
+                          >
+                            <SubmitButton className={cx(dangerButtonClass, "px-2.5 py-1.5 text-xs")} pendingText="Borrando…">
+                              Borrar
+                            </SubmitButton>
+                          </ActionForm>
                         </li>
                       ))}
                     </ul>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { deleteInvitationAction } from "@/app/actions/admin";
 import { InvitesByGraduate } from "@/components/invites-by-graduate";
 import { PageTitle } from "@/components/ui";
 import { getCurrentActor } from "@/lib/session";
@@ -12,9 +13,9 @@ export default async function WhoInvitedPage() {
     <div className="space-y-5">
       <PageTitle
         title="Quién invitó a quién"
-        subtitle="Cada egresado con los mails a los que les dio entrada, agrupados como los anotó. Tocá el nombre para corregir o anular."
+        subtitle="Cada egresado con los mails a los que les dio entrada, agrupados como los anotó. Si alguien se arrepintió, tocá “Borrar” (un mail) o “Borrar grupo”: la entrada vuelve al egresado y se quita de la planilla."
       />
-      <InvitesByGraduate graduates={graduates} />
+      <InvitesByGraduate graduates={graduates} remove={deleteInvitationAction} />
     </div>
   );
 }

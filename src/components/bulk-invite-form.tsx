@@ -7,6 +7,7 @@ import { UnreadableBox } from "./unreadable-box";
 import type { CheckedEmail, CheckStatus, GroupOutcome } from "@/server/invitations";
 import { Alert, Badge, SendWarning, buttonClass, cx, inputClass, secondaryButtonClass } from "./ui";
 import { CopyButton } from "./copy-button";
+import { RegretInfo } from "./regret-info";
 
 type CheckResult = { items: CheckedEmail[]; remaining: number } | { error: string };
 
@@ -324,6 +325,7 @@ export function BulkInviteForm({
                 </li>
               ))}
             </ul>
+            {who === "vos" ? <RegretInfo emails={done.emails} /> : null}
           </div>
         </div>
       ) : null}

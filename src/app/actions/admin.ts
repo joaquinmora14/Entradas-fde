@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   getGraduateActor,
   cancelInvitation,
+  cancelInvitationGroup,
   correctInvitationEmail,
   deletePendingUser,
   generateAccessLink,
@@ -84,6 +85,27 @@ export async function cancelInvitationAction(_p: FormState, form: FormData): Pro
     await cancelInvitation(await getCurrentActor(), String(form.get("invitationId") ?? ""), form.get("reason"));
     revalidatePath("/admin", "layout");
     return { ok: true, message: "Invitación anulada. Se liberó la entrada y se actualizará la hoja." };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const DEFAULT_DELETE_REASON = "Borrada por el administrador (el egresado se arrepintió)";
+
+/** Borra un mail anotado (o un grupo entero) desde "Quién invitó": la entrada vuelve al egresado. */
+export async function deleteInvitationAction(_p: FormState, form: FormData): Promise<FormState> {
+  try {
+    const actor = await getCurrentActor();
+    const reason = String(form.get("reason") ?? "").trim() || DEFAULT_DELETE_REASON;
+    const groupId = String(form.get("groupId") ?? "");
+    if (groupId) {
+      const emails = await cancelInvitationGroup(actor, groupId, reason);
+      revalidatePath("/admin", "layout");
+      return { ok: true, message: `Se ${emails.length === 1 ? "borró 1 invitación" : `borraron ${emails.length} invitaciones`}. Las entradas volvieron al egresado.` };
+    }
+    await cancelInvitation(actor, String(form.get("invitationId") ?? ""), reason);
+    revalidatePath("/admin", "layout");
+    return { ok: true, message: "Invitación borrada. La entrada volvió al egresado." };
   } catch (err) {
     return fail(err);
   }

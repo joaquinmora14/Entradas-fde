@@ -129,6 +129,7 @@ export function InvitesByGraduate({
                           >
                             {e}
                           </span>
+                          {gr.sent[idx] ? <Badge tone="green">Enviada</Badge> : <Badge tone="amber">Sin enviar</Badge>}
                           <CopyButton text={e} />
                           <ActionForm
                             action={remove}

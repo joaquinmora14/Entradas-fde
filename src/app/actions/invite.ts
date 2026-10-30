@@ -5,6 +5,7 @@ import {
   checkGuestEmails,
   inviteFromPool,
   inviteGroup,
+  setInvitationsSent,
   type GroupOutcome,
   type PoolOutcome,
 } from "@/server/invitations";
@@ -61,5 +62,17 @@ export async function addEmailsToPoolAction(emails: string[]) {
     return { report };
   } catch (err) {
     return { error: publicMessage(err) } as const;
+  }
+}
+
+/** Marca o desmarca invitaciones propias como "ya enviadas" (solo una marca personal). */
+export async function markSentAction(ids: string[], sent: boolean): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await setInvitationsSent(await getCurrentActor(), ids, sent);
+    revalidatePath("/panel");
+    revalidatePath("/pool");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: publicMessage(err) };
   }
 }

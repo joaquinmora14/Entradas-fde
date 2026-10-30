@@ -168,14 +168,14 @@ export interface InviterSummary {
   initialQuota: number;
   used: number;
   /** Mails que anotó (activos), agrupados como se anotaron: los grupos más recientes primero. */
-  groups: Array<{ id: string; createdAt: string; source: "direct" | "pool"; emails: string[]; invitationIds: string[] }>;
+  groups: Array<{ id: string; createdAt: string; source: "direct" | "pool"; emails: string[]; invitationIds: string[]; sent: boolean[] }>;
 }
 
 /** Para el administrador: cada egresado (en orden alfabético) con todos los mails a los que les dio entrada. */
 export async function listInvitesByGraduate(actorIn: Actor | null): Promise<InviterSummary[]> {
   const users = (await listUsers(actorIn)).filter((u) => u.isGraduate);
-  const { rows } = await getDb().query<{ id: string; inviter_id: string; group_id: string; guest_email: string; source: "direct" | "pool"; created_at: Date }>(
-    `SELECT id, inviter_id, group_id, guest_email, source, created_at FROM app.invitations
+  const { rows } = await getDb().query<{ id: string; inviter_id: string; group_id: string; guest_email: string; source: "direct" | "pool"; created_at: Date; sent_at: Date | null }>(
+    `SELECT id, inviter_id, group_id, guest_email, source, created_at, sent_at FROM app.invitations
       WHERE status = 'active'
       ORDER BY created_at, id`,
   );
@@ -184,9 +184,10 @@ export async function listInvitesByGraduate(actorIn: Actor | null): Promise<Invi
     let groups = byUser.get(r.inviter_id);
     if (!groups) byUser.set(r.inviter_id, (groups = new Map()));
     let g = groups.get(r.group_id);
-    if (!g) groups.set(r.group_id, (g = { id: r.group_id, createdAt: r.created_at.toISOString(), source: r.source, emails: [], invitationIds: [] }));
+    if (!g) groups.set(r.group_id, (g = { id: r.group_id, createdAt: r.created_at.toISOString(), source: r.source, emails: [], invitationIds: [], sent: [] }));
     g.emails.push(r.guest_email);
     g.invitationIds.push(r.id);
+    g.sent.push(r.sent_at !== null);
     g.createdAt = r.created_at.toISOString();
   }
   return users.map((u) => ({

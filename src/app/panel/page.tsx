@@ -3,8 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { BulkInviteForm } from "@/components/bulk-invite-form";
-import { InvitationGroupCard } from "@/components/invitation-group";
-import { checkEmailsAction, inviteGroupAction } from "@/app/actions/invite";
+import { MyInvitationsList } from "@/components/invitation-group";
+import { checkEmailsAction, inviteGroupAction, markSentAction } from "@/app/actions/invite";
 import { Alert, Badge, Card, EmptyState, PageTitle, ProgressBar, Stat } from "@/components/ui";
 import { requireActor } from "@/lib/session";
 import { getDashboard } from "@/server/invitations";
@@ -72,11 +72,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
         {d.invitations.length === 0 ? (
           <EmptyState title="Todavía no anotaste ningún mail">Pegá la lista arriba y tocá “Revisar mails”.</EmptyState>
         ) : (
-          <div className="space-y-3">
-            {d.groups.map((g) => (
-              <InvitationGroupCard key={g.id} group={g} />
-            ))}
-          </div>
+          <MyInvitationsList groups={d.groups} markSent={markSentAction} />
         )}
       </Card>
     </div>

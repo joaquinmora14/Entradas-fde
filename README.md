@@ -68,6 +68,11 @@ se repita entre egresados. La app no envía nada a los invitados: es un registro
    aparece una ventana que no se puede cerrar hasta copiar **cada mail, de a uno** (cada uno tiene su botón). Arriba de la
    lista hay filtros por tamaño de grupo (Todos, 1 persona, 2 personas…, de menor a mayor).
 
+**¿Ya la mandé?** Cada mail anotado (también los que vienen de “fuera de lista”) tiene un botón **Marcar como
+enviada** → **✓ Enviada** (se puede desmarcar). Arriba dice “Ya mandaste X de Y” y hay filtros *Falta mandar / Ya
+enviadas / Todas*. Es solo una marca personal: no borra nada ni toca el cupo ni la planilla. El administrador la ve en
+*Quién invitó*.
+
 **¿Se arrepintió?** Un egresado no puede borrar un mail anotado. En cada grupo anotado hay un botón “¿Te arrepentiste?”
 que le explica que le avise al administrador (joaquitomora13@gmail.com), con un botón para escribirle un mail que ya
 dice qué mails borrar. El administrador los borra desde **Admin → Quién invitó**.

@@ -324,6 +324,8 @@ export interface MyInvitation {
   id: string;
   groupId: string;
   email: string;
+  /** Cuándo la marcó como enviada (null = todavía no la mandó). */
+  sentAt: string | null;
   source: "direct" | "pool";
   createdAt: string;
   sync: "synced" | "pending" | "error";
@@ -337,8 +339,9 @@ export async function listMyInvitations(actor: Actor): Promise<MyInvitation[]> {
     source: "direct" | "pool";
     created_at: Date;
     sync_status: "synced" | "pending" | "error";
+    sent_at: Date | null;
   }>(
-    `SELECT id, group_id, guest_email, source, created_at, sync_status FROM app.invitations
+    `SELECT id, group_id, guest_email, source, created_at, sync_status, sent_at FROM app.invitations
       WHERE inviter_id = $1 AND status = 'active'
       ORDER BY created_at, id`,
     [actor.id],
@@ -347,6 +350,7 @@ export async function listMyInvitations(actor: Actor): Promise<MyInvitation[]> {
     id: r.id,
     groupId: r.group_id,
     email: r.guest_email,
+    sentAt: r.sent_at ? r.sent_at.toISOString() : null,
     source: r.source,
     createdAt: r.created_at.toISOString(),
     sync: r.sync_status,
@@ -379,6 +383,23 @@ export function groupInvitations<T extends { groupId: string; createdAt: string 
   }
   const groups = [...map.values()];
   return groups.reverse().sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+}
+
+/**
+ * Marca (o desmarca) invitaciones como "ya enviadas". Es solo una marca para el egresado:
+ * no toca el cupo ni la planilla. Solo puede marcar las suyas que siguen activas.
+ * Devuelve cuántas cambió.
+ */
+export async function setInvitationsSent(actorIn: Actor | null, ids: unknown, sent: boolean): Promise<number> {
+  const actor = requireGraduate(actorIn);
+  const list = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string" && UUID_ANY.test(x)).slice(0, 100) : [];
+  if (!list.length) return 0;
+  const { rowCount } = await getDb().query(
+    `UPDATE app.invitations SET sent_at = CASE WHEN $3 THEN COALESCE(sent_at, now()) ELSE NULL END
+      WHERE id = ANY($1::uuid[]) AND inviter_id = $2 AND status = 'active'`,
+    [list, actor.id, sent],
+  );
+  return rowCount ?? 0;
 }
 
 export async function countPoolAvailable(): Promise<number> {

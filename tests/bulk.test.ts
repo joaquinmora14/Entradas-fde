@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeEmailText, extractEmails } from "@/lib/extract-emails";
-import { checkGuestEmails, getDashboard, inviteGroup } from "@/server/invitations";
+import { checkGuestEmails, getDashboard, inviteGroup, setInvitationsSent } from "@/server/invitations";
 import { getDb } from "@/server/db";
 import { getGraduateActor } from "@/server/admin";
 import { listAuditLogs } from "@/server/admin";
@@ -188,5 +188,40 @@ describe("Anotar un grupo (la lista pegada va junta)", () => {
     expect(logs[0]).toMatchObject({ actorEmail: "admin@example.com", details: { onBehalfOf: "juan@example.com", by: "admin", size: 2 } });
     // Un egresado común no puede usar la función de administrador.
     await expect(getGraduateActor(juan, juan.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("marcar como enviada: es solo una marca personal (no toca cupo ni planilla) y nadie puede marcar las de otro", async () => {
+    const { MemorySheetsClient } = await import("@/server/sheets/memory");
+    const { setSheetsClientForTests } = await import("@/server/sheets/sync");
+    const sheet = new MemorySheetsClient();
+    setSheetsClientForTests(sheet);
+    const juan = await makeUser({ email: "juan@example.com", name: "Juan" });
+    const maria = await makeUser({ email: "maria@example.com", name: "María" });
+    await inviteGroup(juan, { emails: ["a@example.com", "b@example.com", "c@example.com"], idempotencyKey: key() });
+    const before = { quota: await quotaOf(juan.id), sheet: JSON.stringify(sheet.rows), jobs: await count("SELECT count(*) AS n FROM app.sheet_sync_jobs") };
+    const items = () => getDashboard(juan).then((d) => d.groups[0].items);
+    const [a, b, c] = await items();
+    expect([a.sentAt, b.sentAt, c.sentAt]).toEqual([null, null, null]);
+
+    expect(await setInvitationsSent(juan, [a.id, b.id], true)).toBe(2);
+    let now = await items();
+    expect(now.map((i) => i.sentAt !== null)).toEqual([true, true, false]);
+    // Marcar de nuevo no cambia la fecha; desmarcar la vuelve a "sin enviar".
+    const firstDate = now[0].sentAt;
+    await setInvitationsSent(juan, [a.id], true);
+    expect((await items())[0].sentAt).toBe(firstDate);
+    await setInvitationsSent(juan, [b.id], false);
+    now = await items();
+    expect(now.map((i) => i.sentAt !== null)).toEqual([true, false, false]);
+
+    // María no puede marcar las de Juan.
+    expect(await setInvitationsSent(maria, [c.id], true)).toBe(0);
+    expect((await items())[2].sentAt).toBeNull();
+
+    // No cambió el cupo, ni la planilla, ni se encoló nada.
+    expect(await quotaOf(juan.id)).toEqual(before.quota);
+    expect(JSON.stringify(sheet.rows)).toBe(before.sheet);
+    expect(await count("SELECT count(*) AS n FROM app.sheet_sync_jobs")).toBe(before.jobs);
+    await expect(setInvitationsSent(null, [a.id], true)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
   });
 });

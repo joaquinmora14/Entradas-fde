@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { InvitationGroupCard } from "@/components/invitation-group";
+import { MyInvitationsList } from "@/components/invitation-group";
 import { PoolAddForm } from "@/components/pool-add-form";
 import { PoolPickList } from "@/components/pool-pick-list";
 import { Alert, Badge, Card, EmptyState, PageTitle, Stat } from "@/components/ui";
-import { addEmailsToPoolAction, checkPoolEmailsAction, poolInviteAction } from "@/app/actions/invite";
+import { addEmailsToPoolAction, checkPoolEmailsAction, markSentAction, poolInviteAction } from "@/app/actions/invite";
 import { requireActor } from "@/lib/session";
 import { getDashboard } from "@/server/invitations";
 import { getPoolBoard } from "@/server/pool-admin";
@@ -59,11 +59,7 @@ export default async function PoolPage() {
         {mine.length === 0 ? (
           <EmptyState title="Todavía no le diste entrada a nadie de la lista" />
         ) : (
-          <div className="space-y-3">
-            {mine.map((g) => (
-              <InvitationGroupCard key={g.id} group={g} />
-            ))}
-          </div>
+          <MyInvitationsList groups={mine} markSent={markSentAction} showFilter={false} />
         )}
       </Card>
 
